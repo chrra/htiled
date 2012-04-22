@@ -1,7 +1,6 @@
 module Data.Tiled
-    ( module Data.Tiled.Load
-    , module Data.Tiled.Types
+    ( module X
     ) where
 
-import Data.Tiled.Load
-import Data.Tiled.Types
+import Data.Tiled.Load as X
+import Data.Tiled.Types as X

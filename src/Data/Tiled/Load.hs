@@ -54,19 +54,35 @@ layers ∷ IOSArrow (XmlTree, (Int, Int)) [Layer]
 layers = listA (first (getChildren >>> isElem) >>> doObjectGroup <+> doLayer)
   where
     doObjectGroup = arr fst >>> hasName "objectgroup" >>> id &&& (listA object >>> arr Right) >>> common
-    
+
     object = getChildren >>> isElem >>> hasName "object"
          >>> proc obj → do
-        objectName   ← arr listToMaybe . listA (getAttrValue "name") ⤙ obj
-        objectType   ← arr listToMaybe . listA (getAttrValue "type") ⤙ obj
-        objectX      ← getAttrR "x"                                  ⤙ obj
-        objectY      ← getAttrR "y"                                  ⤙ obj
-        objectWidth  ← arr listToMaybe . listA (getAttrR "width")    ⤙ obj
-        objectHeight ← arr listToMaybe . listA (getAttrR "height")   ⤙ obj
-        objectGid    ← arr listToMaybe . listA (getAttrR "gid")      ⤙ obj
-        objectProperties ← properties                                ⤙ obj
+        objectName     ← arr listToMaybe . listA (getAttrValue "name") ⤙ obj
+        objectType     ← arr listToMaybe . listA (getAttrValue "type") ⤙ obj
+        objectX        ← getAttrR "x"                                  ⤙ obj
+        objectY        ← getAttrR "y"                                  ⤙ obj
+        objectWidth    ← arr listToMaybe . listA (getAttrR "width")    ⤙ obj
+        objectHeight   ← arr listToMaybe . listA (getAttrR "height")   ⤙ obj
+        objectGid      ← arr listToMaybe . listA (getAttrR "gid")      ⤙ obj
+        objectPolygon  ← arr listToMaybe . polygon                     ⤙ obj
+        objectPolyline ← arr listToMaybe . polyline                    ⤙ obj
+        objectProperties ← properties                                  ⤙ obj
         returnA      ⤙ Object {..}
-    
+
+    polygon ∷ IOSArrow XmlTree [Polygon]
+    polygon = listA $ getChildren >>> isElem >>> hasName "polygon"
+          >>> getAttrValue "points" >>> arr (Polygon . points)
+    polyline ∷ IOSArrow XmlTree [Polyline]
+    polyline = listA $ getChildren >>> isElem >>> hasName "polyline"
+          >>> getAttrValue "points" >>> arr (Polyline . points)
+
+    points :: String → [(Int, Int)]
+    points s = (x, y):if null rest then [] else points rest
+        where (p, rest) = drop 1 `fmap` break (==' ') s
+              (x', y') = drop 1 `fmap` break (==',') p
+              x = read x'
+              y = read y'
+
     doLayer = first (hasName "layer") >>> arr fst &&& (doData >>> arr Left) >>> common
 
     doData = first (getChildren >>> isElem >>> hasName "data")

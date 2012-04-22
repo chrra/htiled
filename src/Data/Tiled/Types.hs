@@ -47,21 +47,29 @@ data Object = Object
             , objectX, objectY          ∷ Int
             , objectWidth, objectHeight ∷ Maybe Int
             , objectGid                 ∷ Maybe Word32
+            , objectPolygon             ∷ Maybe Polygon
+            , objectPolyline            ∷ Maybe Polyline
             } deriving (Show, Eq)
+
+-- | A polygon.
+data Polygon = Polygon [(Int, Int)] deriving (Show, Eq)
+
+-- | A polyline.
+data Polyline = Polyline [(Int, Int)] deriving (Show, Eq)
 
 -- | Either a tile layer or an object layer.
 data Layer = Layer
            { layerName       ∷ String
            , layerOpacity    ∷ Float
            , layerIsVisible  ∷ Bool
-           , layerProperties ∷ [(String, String)]
+           , layerProperties ∷ Properties
            , layerData       ∷ Map (Int, Int) Tile
            }
            | ObjectLayer
            { layerName       ∷ String
            , layerOpacity    ∷ Float
            , layerIsVisible  ∷ Bool
-           , layerProperties ∷ [(String, String)]
+           , layerProperties ∷ Properties
            , layerObjects    ∷ [Object]
            } deriving Eq
 
@@ -76,7 +84,7 @@ instance Show Layer where
                             ", layerOpacity = " ++ show layerOpacity ++
                             ", layerIsVisible = " ++ show layerIsVisible ++
                             ", layerProperties = " ++ show layerProperties ++
-                            ", layerData = ... }"
+                            ", layerData = \"...\" }"
     show ObjectLayer {..} = "ObjectLayer { layerName = " ++ show layerName ++
                                         ", layerOpacity = " ++ show layerOpacity ++
                                         ", layerIsVisible = " ++ show layerIsVisible ++
