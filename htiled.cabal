@@ -18,7 +18,7 @@ Source-Repository head
 Library
   Hs-Source-Dirs:    src
   Exposed-Modules:   Data.Tiled, Data.Tiled.Types, Data.Tiled.Load
-  Build-depends:       base ==4.*, zlib ==0.5.*, bytestring ==0.9.*, hxt ==9.1.*
-                     , base64-bytestring ==0.1.*, containers ==0.4.*
-                     , filepath
+  Build-depends:       base ==0.4.*, zlib ==0.5.*, bytestring ==0.9.*
+                     , hxt >9.1 && <9.3, base64-bytestring ==0.1.*
+                     , containers ==0.4.*, filepath
   Ghc-Options:       -Wall
