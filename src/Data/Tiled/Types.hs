@@ -71,11 +71,18 @@ data Layer = Layer
            , layerIsVisible  ∷ Bool
            , layerProperties ∷ Properties
            , layerObjects    ∷ [Object]
+           }
+           | ImageLayer
+           { layerName       ∷ String
+           , layerOpacity    ∷ Float
+           , layerIsVisible  ∷ Bool
+           , layerProperties ∷ Properties
+           , layerImage      ∷ Image
            } deriving Eq
 
 -- | A single tile as is stored in a layer.
 data Tile = Tile { tileGid                        ∷ Word32
-                 , tileIsVFlipped, tileIsHFlipped ∷ Bool
+                 , tileIsVFlipped, tileIsHFlipped, tileIsDiagFlipped ∷ Bool
                  } deriving (Show, Eq, Ord)
 
 
@@ -90,4 +97,9 @@ instance Show Layer where
                                         ", layerIsVisible = " ++ show layerIsVisible ++
                                         ", layerProperties = " ++ show layerProperties ++
                                         ", layerObjects = " ++ show layerObjects ++ " }"
+    show ImageLayer {..} = "ObjectLayer { layerName = " ++ show layerName ++
+                                       ", layerOpacity = " ++ show layerOpacity ++
+                                       ", layerIsVisible = " ++ show layerIsVisible ++
+                                       ", layerProperties = " ++ show layerProperties ++
+                                       ", layerImage = " ++ show layerImage ++ " }"
 

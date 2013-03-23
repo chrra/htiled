@@ -51,7 +51,7 @@ doMap mapPath = proc m → do
     returnA        ⤙ TiledMap {..}
 
 layers ∷ IOSArrow (XmlTree, (Int, Int)) [Layer]
-layers = listA (first (getChildren >>> isElem) >>> doObjectGroup <+> doLayer)
+layers = listA (first (getChildren >>> isElem) >>> doObjectGroup <+> doLayer <+> doImageLayer)
   where
     doObjectGroup = arr fst >>> hasName "objectgroup" >>> id &&& (listA object >>> arr Right) >>> common
 
@@ -83,6 +83,13 @@ layers = listA (first (getChildren >>> isElem) >>> doObjectGroup <+> doLayer)
               x = read x'
               y = read y'
 
+    doImageLayer = arr fst >>> hasName "imagelayer" >>> id &&& image >>> proc (l, layerImage) → do
+        layerName ← getAttrValue "name" ⤙ l
+        layerOpacity ← arr (fromMaybe 1 . listToMaybe) . listA (getAttrR "opacity") ⤙ l
+        layerIsVisible ← arr (isNothing . listToMaybe) . listA (getAttrValue "visible") ⤙ l
+        layerProperties ← properties ⤙ l
+        returnA ⤙ ImageLayer{..}
+
     doLayer = first (hasName "layer") >>> arr fst &&& (doData >>> arr Left) >>> common
 
     doData = first (getChildren >>> isElem >>> hasName "data")
@@ -108,9 +115,10 @@ layers = listA (first (getChildren >>> isElem) >>> doObjectGroup <+> doLayer)
     bytesToTiles (a:b:c:d:xs) = Tile { .. } : bytesToTiles xs
       where n = f a + f b * 256 + f c * 65536 + f d * 16777216
             f = fromIntegral . fromEnum ∷ Char → Word32
-            tileGid = n `clearBit` 30 `clearBit` 31
+            tileGid = n `clearBit` 30 `clearBit` 31 `clearBit` 29
             tileIsVFlipped = n `testBit` 30
             tileIsHFlipped = n `testBit` 31
+            tileIsDiagFlipped = n `testBit` 29
     bytesToTiles [] = []
     bytesToTiles _ = error "number of bytes not a multiple of 4."
 
@@ -139,15 +147,15 @@ tilesets = listA $ getChildren >>> isElem >>> hasName "tileset"
         tileProperties = getChildren >>> isElem >>> hasName "tile"
                      >>> getAttrR "id" &&& properties
 
-        images = listA (getChildren >>> isElem >>> hasName "image" >>>
-                         proc image → do
-                              iSource ← getAttrValue "source"   ⤙ image
-                              iTrans  ← arr (fmap colorToTriplet . listToMaybe)
-                                            . listA (getAttrValue0 "trans") ⤙ image
-                              iWidth  ← getAttrR "width"        ⤙ image
-                              iHeight ← getAttrR "height"       ⤙ image
-                              returnA ⤙ Image {..})
+        images = listA (getChildren >>> image)
 
+image = isElem >>> hasName "image" >>> proc image → do
+    iSource ← getAttrValue "source"   ⤙ image
+    iTrans  ← arr (fmap colorToTriplet . listToMaybe) . listA (getAttrValue0 "trans") ⤙ image
+    iWidth  ← getAttrR "width"        ⤙ image
+    iHeight ← getAttrR "height"       ⤙ image
+    returnA ⤙ Image {..}
+    where
         colorToTriplet x = (h x, h $ drop 2 x, h $ drop 4 x)
-          where h (y:z:_) = fromIntegral $ digitToInt y * 16 + digitToInt z
-                h _ = error "invalid color in an <image ...> somewhere."
+            where h (y:z:_) = fromIntegral $ digitToInt y * 16 + digitToInt z
+                  h _ = error "invalid color in an <image ...> somewhere."
