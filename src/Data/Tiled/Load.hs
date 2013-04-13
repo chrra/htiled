@@ -1,5 +1,5 @@
 {-# LANGUAGE Arrows, UnicodeSyntax, RecordWildCards #-}
-module Data.Tiled.Load (loadMapFile) where
+module Data.Tiled.Load (loadMapFile, loadMap) where
 
 import Prelude hiding ((.), id)
 import Control.Category ((.), id)
@@ -19,11 +19,17 @@ import Text.XML.HXT.Core
 
 import Data.Tiled.Types
 
+-- | Load a map from a string
+loadMap ∷ String → IO TiledMap
+loadMap str = load (readString [] str) "binary"
+
 -- | Load a map file.
 loadMapFile ∷ FilePath → IO TiledMap
-loadMapFile fp = head `fmap` runX (
+loadMapFile fp = load (readDocument [] fp) fp
+
+load a fp = head `fmap` runX (
         configSysVars [withValidate no, withWarnings yes]
-    >>> readDocument [] fp
+    >>> a
     >>> getChildren >>> isElem
     >>> doMap fp)
 
