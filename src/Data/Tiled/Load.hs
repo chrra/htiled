@@ -27,6 +27,7 @@ loadMap str = load (readString [] str) "binary"
 loadMapFile ∷ FilePath → IO TiledMap
 loadMapFile fp = load (readDocument [] fp) fp
 
+load ∷ IOStateArrow () XmlTree XmlTree -> FilePath -> IO TiledMap
 load a fp = head `fmap` runX (
         configSysVars [withValidate no, withWarnings yes]
     >>> a
@@ -155,11 +156,12 @@ tilesets = listA $ getChildren >>> isElem >>> hasName "tileset"
 
         images = listA (getChildren >>> image)
 
-image = isElem >>> hasName "image" >>> proc image → do
-    iSource ← getAttrValue "source"   ⤙ image
-    iTrans  ← arr (fmap colorToTriplet . listToMaybe) . listA (getAttrValue0 "trans") ⤙ image
-    iWidth  ← getAttrR "width"        ⤙ image
-    iHeight ← getAttrR "height"       ⤙ image
+image ∷ IOSArrow XmlTree Image
+image = isElem >>> hasName "image" >>> proc img → do
+    iSource ← getAttrValue "source"   ⤙ img
+    iTrans  ← arr (fmap colorToTriplet . listToMaybe) . listA (getAttrValue0 "trans") ⤙ img
+    iWidth  ← getAttrR "width"        ⤙ img
+    iHeight ← getAttrR "height"       ⤙ img
     returnA ⤙ Image {..}
     where
         colorToTriplet x = (h x, h $ drop 2 x, h $ drop 4 x)
