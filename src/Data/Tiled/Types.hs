@@ -27,6 +27,7 @@ data Tileset = Tileset
              { tsName                    ∷ String
              , tsInitialGid              ∷ Word32
              , tsTileWidth, tsTileHeight ∷ Int
+             , tsSpacing, tsMargin       ∷ Int
              , tsImages                  ∷ [Image] -- ^ Multiple images not
                                                    -- yet supported in tiled.
              , tsTileProperties          ∷ [(Word32, Properties)]
