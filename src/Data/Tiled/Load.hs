@@ -42,6 +42,12 @@ properties = listA $ getChildren >>> isElem >>> hasName "properties"
 getAttrR ∷ (Read α, Num α) ⇒ String → IOSArrow XmlTree α
 getAttrR a = arr read . getAttrValue0 a
 
+getAttrMaybe ∷ (Read α, Num α) ⇒ String → IOSArrow XmlTree (Maybe α)
+getAttrMaybe a = arr tm . getAttrValue a
+    where
+        tm "" = Nothing
+        tm s = Just $ read s
+
 doMap ∷ FilePath → IOSArrow XmlTree TiledMap
 doMap mapPath = proc m → do
     mapOrientation ← arr (\x → case x of "orthogonal" → Orthogonal
@@ -139,7 +145,6 @@ layers = listA (first (getChildren >>> isElem) >>> doObjectGroup <+> doLayer <+>
         returnA ⤙ case x of Left  layerData    → Layer {..}
                             Right layerObjects → ObjectLayer {..}
 
-
 tilesets ∷ IOSArrow XmlTree [Tileset]
 tilesets = listA $ getChildren >>> isElem >>> hasName "tileset"
          >>> proc ts → do
@@ -147,6 +152,8 @@ tilesets = listA $ getChildren >>> isElem >>> hasName "tileset"
               tsInitialGid  ← getAttrR "firstgid"     ⤙ ts
               tsTileWidth   ← getAttrR "tilewidth"    ⤙ ts
               tsTileHeight  ← getAttrR "tileheight"   ⤙ ts
+              tsMargin      ← (arr $ fromMaybe 0) . getAttrMaybe "margin" ⤙ ts
+              tsSpacing     ← (arr $ fromMaybe 0) . getAttrMaybe "spacing" ⤙ ts
               tsImages      ← images                  ⤙ ts
               tsTileProperties ← listA tileProperties ⤙ ts
               returnA ⤙ Tileset {..}
