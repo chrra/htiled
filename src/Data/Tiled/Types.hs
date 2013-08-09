@@ -1,7 +1,7 @@
 {-# LANGUAGE UnicodeSyntax, RecordWildCards #-}
 module Data.Tiled.Types where
 
-import Data.Map (Map)
+import Data.Vector (Vector)
 import Data.Word (Word8, Word32)
 
 -- | Orientations.
@@ -64,7 +64,7 @@ data Layer = Layer
            , layerOpacity    ∷ Float
            , layerIsVisible  ∷ Bool
            , layerProperties ∷ Properties
-           , layerData       ∷ Map (Int, Int) Tile
+           , layerData       ∷ Vector (Vector (Maybe Tile))
            }
            | ObjectLayer
            { layerName       ∷ String

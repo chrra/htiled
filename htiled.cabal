@@ -20,5 +20,5 @@ Library
   Exposed-Modules:   Data.Tiled, Data.Tiled.Types, Data.Tiled.Load
   Build-depends:       base ==4.*, zlib ==0.5.*, bytestring
                      , hxt == 9.*, base64-bytestring > 1
-                     , containers >=0.4 && <0.6, filepath
+                     , filepath, vector
   Ghc-Options:       -Wall

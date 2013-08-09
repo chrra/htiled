@@ -8,8 +8,8 @@ import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import Data.Char (digitToInt)
-import Data.List (sort)
-import Data.Map (fromDistinctAscList, Map)
+import Data.List (unfoldr)
+import Data.Vector (fromList, Vector)
 import Data.Maybe (listToMaybe, fromMaybe, isNothing)
 import Data.Word (Word32)
 
@@ -113,14 +113,18 @@ layers = listA (first (getChildren >>> isElem) >>> doObjectGroup <+> doLayer <+>
                 returnA ⤙ dataToTiles w h encoding compression text
 
     -- Width → Height → Encoding → Compression → Data → [Tile]
-    dataToTiles ∷ Int → Int → String → String → String → Map (Int, Int) Tile
-    dataToTiles w h "base64" "gzip" = toMap w h . base64 GZip.decompress
-    dataToTiles w h "base64" "zlib" = toMap w h . base64 Zlib.decompress
+    dataToTiles ∷ Int → Int → String → String → String
+                → Vector (Vector (Maybe Tile))
+    dataToTiles w h "base64" "gzip" = toVector w h . base64 GZip.decompress
+    dataToTiles w h "base64" "zlib" = toVector w h . base64 Zlib.decompress
     dataToTiles _ _ _ _ = error "unsupported tile data format, only base64 and \
                                 \gzip/zlib is supported at the moment."
 
-    toMap w h = fromDistinctAscList . sort . filter (\(_, x) → tileGid x /= 0)
-                . zip [(x, y) | y ← [0..h-1], x ← [0..w-1]]
+    toVector w _ = fromList . unfoldr (f . splitAt w)
+      where f ([], _) = Nothing
+            f (x, rest) = Just (fromList $ map tileToMaybe x, rest)
+            tileToMaybe t@Tile {..} | tileGid == 0 = Nothing
+                                    | otherwise = Just t
 
     base64 f = bytesToTiles . LBS.unpack . f . LBS.fromChunks
                             . (:[]) . B64.decodeLenient . BS.pack
