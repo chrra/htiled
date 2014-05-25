@@ -1,23 +1,26 @@
-{-# LANGUAGE Arrows, UnicodeSyntax, RecordWildCards #-}
+{-# LANGUAGE Arrows          #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE UnicodeSyntax   #-}
 module Data.Tiled.Load (loadMapFile, loadMap) where
 
-import Prelude hiding ((.), id)
-import Control.Category ((.), id)
-import Data.Bits (testBit, clearBit)
-import qualified Data.ByteString.Base64 as B64
-import qualified Data.ByteString.Char8 as BS
+import           Control.Category           (id, (.))
+import           Data.Bits                  (clearBit, testBit)
+import qualified Data.ByteString.Base64     as B64
+import qualified Data.ByteString.Char8      as BS
 import qualified Data.ByteString.Lazy.Char8 as LBS
-import Data.Char (digitToInt)
-import Data.List (sort)
-import Data.Map (fromDistinctAscList, Map)
-import Data.Maybe (listToMaybe, fromMaybe, isNothing)
-import Data.Word (Word32)
+import           Data.Char                  (digitToInt)
+import           Data.List                  (sort)
+import           Data.List.Split            (splitOn)
+import           Data.Map                   (Map, fromDistinctAscList)
+import           Data.Maybe                 (fromMaybe, isNothing, listToMaybe)
+import           Data.Word                  (Word32)
+import           Prelude                    hiding (id, (.))
 
-import qualified Codec.Compression.GZip as GZip
-import qualified Codec.Compression.Zlib as Zlib
-import Text.XML.HXT.Core
+import qualified Codec.Compression.GZip     as GZip
+import qualified Codec.Compression.Zlib     as Zlib
+import           Text.XML.HXT.Core
 
-import Data.Tiled.Types
+import           Data.Tiled.Types
 
 -- | Load a map from a string
 loadMap ∷ String → IO TiledMap
@@ -116,24 +119,32 @@ layers = listA (first (getChildren >>> isElem) >>> doObjectGroup <+> doLayer <+>
     dataToTiles ∷ Int → Int → String → String → String → Map (Int, Int) Tile
     dataToTiles w h "base64" "gzip" = toMap w h . base64 GZip.decompress
     dataToTiles w h "base64" "zlib" = toMap w h . base64 Zlib.decompress
-    dataToTiles _ _ _ _ = error "unsupported tile data format, only base64 and \
-                                \gzip/zlib is supported at the moment."
+    dataToTiles w h "csv"    _      = toMap w h . csv
+    dataToTiles _ _ _ _ = error "unsupported tile data format, only base64 with \
+                                \gzip/zlib and csv are supported at the moment."
 
     toMap w h = fromDistinctAscList . sort . filter (\(_, x) → tileGid x /= 0)
                 . zip [(x, y) | y ← [0..h-1], x ← [0..w-1]]
 
-    base64 f = bytesToTiles . LBS.unpack . f . LBS.fromChunks
+    base64 f = wordsToTiles . bytesToWords . LBS.unpack . f . LBS.fromChunks
                             . (:[]) . B64.decodeLenient . BS.pack
 
-    bytesToTiles (a:b:c:d:xs) = Tile { .. } : bytesToTiles xs
+    csv = wordsToTiles . map (read ∷ String → Word32)
+                       . splitOn ","
+                       . filter (`elem` (',':['0' .. '9']))
+
+    bytesToWords []           = []
+    bytesToWords (a:b:c:d:xs) = n : bytesToWords xs
       where n = f a + f b * 256 + f c * 65536 + f d * 16777216
             f = fromIntegral . fromEnum ∷ Char → Word32
-            tileGid = n `clearBit` 30 `clearBit` 31 `clearBit` 29
-            tileIsVFlipped = n `testBit` 30
-            tileIsHFlipped = n `testBit` 31
-            tileIsDiagFlipped = n `testBit` 29
-    bytesToTiles [] = []
-    bytesToTiles _ = error "number of bytes not a multiple of 4."
+    bytesToWords _            = error "number of bytes not a multiple of 4."
+
+    wordsToTiles []           = []
+    wordsToTiles (w:ws)       = Tile { .. } : wordsToTiles ws
+      where tileGid           = w `clearBit` 30 `clearBit` 31 `clearBit` 29
+            tileIsVFlipped    = w `testBit` 30
+            tileIsHFlipped    = w `testBit` 31
+            tileIsDiagFlipped = w `testBit` 29
 
     common = proc (l, x) → do
         layerName       ← getAttrValue "name"              ⤙ l
