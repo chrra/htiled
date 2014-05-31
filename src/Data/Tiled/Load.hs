@@ -18,8 +18,6 @@ import           Prelude                    hiding (id, (.))
 
 import qualified Codec.Compression.GZip     as GZip
 import qualified Codec.Compression.Zlib     as Zlib
-import           System.Directory           (getCurrentDirectory)
-import           System.FilePath            ((</>))
 import           Text.XML.HXT.Core
 
 import           Data.Tiled.Types
@@ -160,37 +158,20 @@ layers = listA (first (getChildren >>> isElem) >>> doObjectGroup <+> doLayer <+>
 
 tilesets ∷ IOSArrow XmlTree [Tileset]
 tilesets = listA $ getChildren >>> isElem >>> hasName "tileset"
-           >>> internalTileset <+> externalTileset
-
-internalTileset ∷ IOSArrow XmlTree Tileset
-internalTileset = getAttrR "firstgid" &&& id >>> tileset
-
-externalTileset ∷ IOSArrow XmlTree Tileset
-externalTileset = hasAttr "source"
-                  >>> getAttrR "firstgid"
-                  &&& (source >>> readFromDocument [ withValidate no
-                                                   , withWarnings yes ]
-                       >>> getChildren >>> isElem >>> hasName "tileset")
-                  >>> tileset
-  where
-    source ∷ IOSArrow XmlTree FilePath
-    source = arrIO0 getCurrentDirectory &&& getAttrValue "source"
-             >>> arr (uncurry (</>))
-
-tileset ∷ IOSArrow (Word32, XmlTree) Tileset
-tileset = proc (firstGid, ts) → do
-  tsName           ← getAttrValue "name"                        ⤙ ts
-  tsInitialGid     ← id                                         ⤙ firstGid
-  tsTileWidth      ← getAttrR "tilewidth"                       ⤙ ts
-  tsTileHeight     ← getAttrR "tileheight"                      ⤙ ts
-  tsMargin         ← arr (fromMaybe 0) . getAttrMaybe "margin"  ⤙ ts
-  tsSpacing        ← arr (fromMaybe 0) . getAttrMaybe "spacing" ⤙ ts
-  tsImages         ← images                                     ⤙ ts
-  tsTileProperties ← listA tileProperties                       ⤙ ts
-  returnA ⤙ Tileset {..}
+         >>> proc ts → do
+              tsName        ← getAttrValue "name"     ⤙ ts
+              tsInitialGid  ← getAttrR "firstgid"     ⤙ ts
+              tsTileWidth   ← getAttrR "tilewidth"    ⤙ ts
+              tsTileHeight  ← getAttrR "tileheight"   ⤙ ts
+              tsMargin      ← (arr $ fromMaybe 0) . getAttrMaybe "margin" ⤙ ts
+              tsSpacing     ← (arr $ fromMaybe 0) . getAttrMaybe "spacing" ⤙ ts
+              tsImages      ← images                  ⤙ ts
+              tsTileProperties ← listA tileProperties ⤙ ts
+              returnA ⤙ Tileset {..}
   where tileProperties ∷ IOSArrow XmlTree (Word32, Properties)
         tileProperties = getChildren >>> isElem >>> hasName "tile"
-                         >>> getAttrR "id" &&& properties
+                     >>> getAttrR "id" &&& properties
+
         images = listA (getChildren >>> image)
 
 image ∷ IOSArrow XmlTree Image
