@@ -18,6 +18,7 @@ import           Prelude                    hiding (id, (.))
 
 import qualified Codec.Compression.GZip     as GZip
 import qualified Codec.Compression.Zlib     as Zlib
+import           System.FilePath            (dropFileName, (</>))
 import           Text.XML.HXT.Core
 
 import           Data.Tiled.Types
@@ -62,7 +63,7 @@ doMap mapPath = proc m → do
     mapTileWidth   ← getAttrR "tilewidth"  ⤙ m
     mapTileHeight  ← getAttrR "tileheight" ⤙ m
     mapProperties  ← properties            ⤙ m
-    mapTilesets    ← tilesets              ⤙ m
+    mapTilesets    ← tilesets mapPath      ⤙ m
     mapLayers      ← layers                ⤙ (m, (mapWidth, mapHeight))
     returnA        ⤙ TiledMap {..}
 
@@ -156,22 +157,32 @@ layers = listA (first (getChildren >>> isElem) >>> doObjectGroup <+> doLayer <+>
         returnA ⤙ case x of Left  layerData    → Layer {..}
                             Right layerObjects → ObjectLayer {..}
 
-tilesets ∷ IOSArrow XmlTree [Tileset]
-tilesets = listA $ getChildren >>> isElem >>> hasName "tileset"
-         >>> proc ts → do
-              tsName        ← getAttrValue "name"     ⤙ ts
-              tsInitialGid  ← getAttrR "firstgid"     ⤙ ts
-              tsTileWidth   ← getAttrR "tilewidth"    ⤙ ts
-              tsTileHeight  ← getAttrR "tileheight"   ⤙ ts
-              tsMargin      ← (arr $ fromMaybe 0) . getAttrMaybe "margin" ⤙ ts
-              tsSpacing     ← (arr $ fromMaybe 0) . getAttrMaybe "spacing" ⤙ ts
-              tsImages      ← images                  ⤙ ts
-              tsTileProperties ← listA tileProperties ⤙ ts
-              returnA ⤙ Tileset {..}
+tilesets ∷ FilePath → IOSArrow XmlTree [Tileset]
+tilesets fp =
+  listA $ getChildren >>> isElem >>> hasName "tileset"
+  >>> getAttrR "firstgid" &&& ifA (hasAttr "source") (externalTileset fp) id
+  >>> tileset
+
+externalTileset ∷ FilePath → IOSArrow XmlTree XmlTree
+externalTileset mapPath =
+  arr (const (dropFileName mapPath)) &&& getAttrValue "source"
+  >>> arr (uncurry (</>))
+  >>> readFromDocument [ withValidate no, withWarnings yes ]
+  >>> getChildren >>> isElem >>> hasName "tileset"
+
+tileset ∷ IOSArrow (Word32, XmlTree) Tileset
+tileset = proc (tsInitialGid, ts) → do
+  tsName           ← getAttrValue "name"                        ⤙ ts
+  tsTileWidth      ← getAttrR "tilewidth"                       ⤙ ts
+  tsTileHeight     ← getAttrR "tileheight"                      ⤙ ts
+  tsMargin         ← arr (fromMaybe 0) . getAttrMaybe "margin"  ⤙ ts
+  tsSpacing        ← arr (fromMaybe 0) . getAttrMaybe "spacing" ⤙ ts
+  tsImages         ← images                                     ⤙ ts
+  tsTileProperties ← listA tileProperties                       ⤙ ts
+  returnA ⤙ Tileset {..}
   where tileProperties ∷ IOSArrow XmlTree (Word32, Properties)
         tileProperties = getChildren >>> isElem >>> hasName "tile"
-                     >>> getAttrR "id" &&& properties
-
+                         >>> getAttrR "id" &&& properties
         images = listA (getChildren >>> image)
 
 image ∷ IOSArrow XmlTree Image
