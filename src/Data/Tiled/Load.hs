@@ -158,16 +158,17 @@ layers = listA (first (getChildren >>> isElem) >>> doObjectGroup <+> doLayer <+>
                             Right layerObjects → ObjectLayer {..}
 
 tilesets ∷ FilePath → IOSArrow XmlTree [Tileset]
-tilesets mapPath = listA $ getChildren >>> isElem >>> hasName "tileset"
-                   >>> getAttrR "firstgid"
-                   &&& when (hasAttr "source") (externalTileset mapPath)
-                   >>> tileset
+tilesets mapPath =
+  listA $ getChildren >>> isElem >>> hasName "tileset"
+  >>> getAttrR "firstgid" &&& when (hasAttr "source") (externalTileset mapPath)
+  >>> tileset
 
 externalTileset ∷ FilePath → IOSArrow XmlTree XmlTree
-externalTileset mapPath = arr (const (dropFileName mapPath)) &&& getAttrValue "source"
-                          >>> arr (uncurry (</>))
-                          >>> readFromDocument [ withValidate no, withWarnings yes ]
-                          >>> getChildren >>> isElem >>> hasName "tileset"
+externalTileset mapPath =
+  arr (const (dropFileName mapPath)) &&& getAttrValue "source"
+  >>> arr (uncurry (</>))
+  >>> readFromDocument [ withValidate no, withWarnings yes ]
+  >>> getChildren >>> isElem >>> hasName "tileset"
 
 tileset ∷ IOSArrow (Word32, XmlTree) Tileset
 tileset = proc (firstGid, ts) → do
