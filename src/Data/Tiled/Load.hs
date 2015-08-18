@@ -47,10 +47,7 @@ getAttrR ∷ (Read α, Num α) ⇒ String → IOSArrow XmlTree α
 getAttrR a = arr read . getAttrValue0 a
 
 getAttrMaybeR ∷ (Read α, Num α) ⇒ String → IOSArrow XmlTree (Maybe α)
-getAttrMaybeR a = arr r . getAttrMaybe a
-    where
-        r Nothing = error ("Number malformed: "++a)
-        r (Just s) = read s
+getAttrMaybeR a = arr (fmap read) . getAttrMaybe a
 
 getAttrMaybe ∷ String → IOSArrow XmlTree (Maybe String)
 getAttrMaybe a = arr tm . getAttrValue a
