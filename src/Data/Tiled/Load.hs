@@ -46,11 +46,17 @@ properties = listA $ getChildren >>> isElem >>> hasName "properties"
 getAttrR ∷ (Read α, Num α) ⇒ String → IOSArrow XmlTree α
 getAttrR a = arr read . getAttrValue0 a
 
-getAttrMaybe ∷ (Read α, Num α) ⇒ String → IOSArrow XmlTree (Maybe α)
+getAttrMaybeR ∷ (Read α, Num α) ⇒ String → IOSArrow XmlTree (Maybe α)
+getAttrMaybeR a = arr r . getAttrMaybe a
+    where
+        r Nothing = error ("Number malformed: "++a)
+        r (Just s) = read s
+
+getAttrMaybe ∷ String → IOSArrow XmlTree (Maybe String)
 getAttrMaybe a = arr tm . getAttrValue a
     where
         tm "" = Nothing
-        tm s = Just $ read s
+        tm s = Just s
 
 doMap ∷ FilePath → IOSArrow XmlTree TiledMap
 doMap mapPath = proc m → do
@@ -175,24 +181,30 @@ tileset = proc (tsInitialGid, ts) → do
   tsName           ← getAttrValue "name"                        ⤙ ts
   tsTileWidth      ← getAttrR "tilewidth"                       ⤙ ts
   tsTileHeight     ← getAttrR "tileheight"                      ⤙ ts
-  tsMargin         ← arr (fromMaybe 0) . getAttrMaybe "margin"  ⤙ ts
-  tsSpacing        ← arr (fromMaybe 0) . getAttrMaybe "spacing" ⤙ ts
+  tsMargin         ← arr (fromMaybe 0) . getAttrMaybeR "margin"  ⤙ ts
+  tsSpacing        ← arr (fromMaybe 0) . getAttrMaybeR "spacing" ⤙ ts
   tsImages         ← images                                     ⤙ ts
   tsTileProperties ← listA tileProperties                       ⤙ ts
   returnA ⤙ Tileset {..}
   where tileProperties ∷ IOSArrow XmlTree (Word32, Properties)
         tileProperties = getChildren >>> isElem >>> hasName "tile"
                          >>> getAttrR "id" &&& properties
-        images = listA (getChildren >>> image)
+        images = listA (getChildren >>> (image <+> tileImage))
+
+data ImageType = TileImage | NormalImage deriving (Read)
 
 image ∷ IOSArrow XmlTree Image
 image = isElem >>> hasName "image" >>> proc img → do
-    iSource ← getAttrValue "source"   ⤙ img
-    iTrans  ← arr (fmap colorToTriplet . listToMaybe) . listA (getAttrValue0 "trans") ⤙ img
     iWidth  ← getAttrR "width"        ⤙ img
     iHeight ← getAttrR "height"       ⤙ img
+    iSource ← getAttrValue0 "source"  ⤙ img
+    iTrans  ← arr (fmap colorToTriplet) . getAttrMaybe "trans" ⤙ img
     returnA ⤙ Image {..}
     where
-        colorToTriplet x = (h x, h $ drop 2 x, h $ drop 4 x)
+        colorToTriplet :: Integral i => String -> (i,i,i)
+        colorToTriplet x = (h x , h (drop 2 x) , h (drop 4 x))
             where h (y:z:_) = fromIntegral $ digitToInt y * 16 + digitToInt z
                   h _ = error "invalid color in an <image ...> somewhere."
+
+tileImage :: IOSArrow XmlTree Image
+tileImage = isElem >>> hasName "tile" >>> getChildren >>> image
