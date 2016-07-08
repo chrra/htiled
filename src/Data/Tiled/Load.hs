@@ -128,7 +128,10 @@ layers = listA (first (getChildren >>> isElem) >>> doObjectGroup <+> doLayer <+>
                                 \gzip/zlib and csv are supported at the moment."
 
     toMap w h = fromDistinctAscList . sort . filter (\(_, x) → tileGid x /= 0)
-                . zip [(x, y) | y ← [0..h-1], x ← [0..w-1]]
+                . zipWith (\ndx t -> ((x w ndx, y w ndx), t)) [0..]
+
+    x w ndx = ndx - (y w ndx) * fromIntegral w
+    y w ndx = floor $ fromIntegral ndx / fromIntegral w
 
     base64 f = wordsToTiles . bytesToWords . LBS.unpack . f . LBS.fromChunks
                             . (:[]) . B64.decodeLenient . BS.pack
