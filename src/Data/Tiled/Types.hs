@@ -27,11 +27,35 @@ data Tileset = Tileset
              { tsName                    :: String
              , tsInitialGid              :: Word32
              , tsTileWidth, tsTileHeight :: Int
+             , tsTileCount               :: Int
              , tsSpacing, tsMargin       :: Int
              , tsImages                  :: [Image] -- ^ Multiple images not
-                                                   -- yet supported in tiled.
-             , tsTileProperties          :: [(Word32, Properties)]
+                                                    -- yet supported in tiled.
+             , tsProperties              :: [Properties]
+             , tsTiles                   :: [Tile]
              } deriving (Show, Eq)
+
+-- | One frame of an animation.
+data Frame = Frame { frameTileId   :: Int
+                   -- ^ The local ID of a tile within the parent TileSet.
+                   , frameDuration :: Int
+                   -- ^ How long (in milliseconds) this frame should be
+                   -- displayed before advancing to the next frame.
+                   } deriving (Show, Eq, Ord)
+
+-- | Contains a list of animation frames.
+newtype Animation = Animation { animationFrames :: [Frame] }
+                  deriving (Show, Eq, Ord)
+
+-- | A tile as defined in a TileSet.
+data Tile = Tile { tileId         :: Word32
+                 -- ^ The local tile ID within its tileset.
+                 -- TODO: Add terrain and probability
+                 , tileProperties :: Properties
+                 , tileImage      :: Maybe Image
+                 --, tileObjectGroup :: Maybe Layer
+                 , tileAnimation  :: Maybe Animation
+                 } deriving (Show, Eq)
 
 -- | An image containing tiles.
 data Image = Image
@@ -64,7 +88,7 @@ data Layer = Layer
            , layerOpacity    :: Float
            , layerIsVisible  :: Bool
            , layerProperties :: Properties
-           , layerData       :: Map (Int, Int) Tile
+           , layerData       :: Map (Int, Int) TileIndex
            }
            | ObjectLayer
            { layerName       :: String
@@ -81,24 +105,13 @@ data Layer = Layer
            , layerImage      :: Image
            } deriving Eq
 
--- | One frame of an animation.
-data Frame = Frame { frameTileId   :: Int
-                   -- ^ The local ID of a tile within the parent TileSet.
-                   , frameDuration :: Int
-                   -- ^ How long (in milliseconds) this frame should be
-                   -- displayed before advancing to the next frame.
-                   } deriving (Show, Eq, Ord)
 
--- | Contains a list of animation frames.
-newtype Animation = Animation { animationFrames :: [Frame] }
-                  deriving (Show, Eq, Ord)
-
--- | A single tile as is stored in a layer.
-data Tile = Tile { tileGid                                           :: Word32
-                 , tileIsVFlipped, tileIsHFlipped, tileIsDiagFlipped :: Bool
-                 , tileAnimation :: Maybe Animation
-                 } deriving (Show, Eq, Ord)
-
+-- | A single tile index as is stored in a layer.
+data TileIndex = TileIndex { tileIndexGid           :: Word32
+                           , tileIndexIsVFlipped    :: Bool
+                           , tileIndexIsHFlipped    :: Bool
+                           , tileIndexIsDiagFlipped :: Bool
+                           } deriving (Show, Eq, Ord)
 
 instance Show Layer where
     show Layer {..} = "Layer { layerName = " ++ show layerName ++
