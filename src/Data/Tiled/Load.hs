@@ -9,11 +9,11 @@ import qualified Data.ByteString.Base64     as B64
 import qualified Data.ByteString.Char8      as BS
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import           Data.Char                  (digitToInt)
-import           Data.List                  (sort)
+--import           Data.List                  (unfoldr)
 import           Data.List.Split            (splitOn)
-import           Data.Map                   (Map, fromDistinctAscList)
 import           Data.Maybe                 (fromMaybe, isNothing, listToMaybe)
 import           Data.Tree.NTree.TypeDefs   (NTree)
+import           Data.Vector                (fromList, unfoldr)
 import           Data.Word                  (Word32)
 import           Prelude                    hiding (id, (.))
 
@@ -74,7 +74,7 @@ tile = getChildren >>> isElem >>> hasName "tile" >>> getTile
          tileId          <- getAttrR "id"                 -< xml
          tileProperties  <- properties                    -< xml
          tileImage       <- arr listToMaybe . listA image -< xml
-         --tileObjectGroup <- arr listToMaybe . listA doObjectGroup -< xml
+         tileObjectGroup <- doObjectGroup -< xml
          tileAnimation   <- arr listToMaybe . listA animation -< xml
          returnA -< Tile{..}
 
@@ -92,9 +92,7 @@ doMap mapPath = proc m -> do
     mapTilesets    <- tilesets mapPath      -< m
     mapLayers      <- layers                -< (m, (mapWidth, mapHeight))
     returnA        -< TiledMap {..}
---------------------------------------------------------------------------------
--- Layer
---------------------------------------------------------------------------------
+
 -- | When you use the tile flipping feature added in Tiled Qt 0.7, the highest
 -- two bits of the gid store the flipped state. Bit 32 is used for storing
 -- whether the tile is horizontally flipped and bit 31 is used for the
@@ -144,55 +142,59 @@ object = getChildren >>> isElem >>> hasName "object" >>> proc obj -> do
   objectProperties <- properties                                  -< obj
   returnA      -< Object {..}
 
-doObjectGroup :: IOSLA (XIOState ()) (XmlTree, b) Layer
-doObjectGroup = arr fst >>> hasName "objectgroup"
-                        >>> id &&& (listA object >>> arr Right)
-                        >>> common
+doObjectGroup :: IOSLA (XIOState ()) XmlTree [Object]
+doObjectGroup = hasName "objectgroup" >>> listA object
+                  -- >>> common
 
-doLayerProps :: IOSLA (XIOState ()) XmlTree (String, Float, Bool, Properties)
-doLayerProps = proc l -> do
+type LayerFields = (String, Float, Bool, Properties, (Int, Int))
+
+doLayerFields :: IOSLA (XIOState ()) XmlTree LayerFields
+doLayerFields = proc l -> do
     name       <- getAttrValue "name" -< l
     opacity    <- arr (fromMaybe (1 :: Float) . listToMaybe)
                     . listA (getAttrR "opacity") -< l
     visibility <- arr (isNothing . listToMaybe)
                     . listA (getAttrValue "visible") -< l
     props      <- properties -< l
-    returnA -< (name, opacity, visibility, props)
+    offsetx    <- arr (fromMaybe (0 :: Int) . listToMaybe)
+                    . listA (getAttrR "offsetx") -< l
+    offsety    <- arr (fromMaybe (0 :: Int) . listToMaybe)
+                    . listA (getAttrR "offsety") -< l
+    returnA -< (name, opacity, visibility, props, (offsetx, offsety))
 
 doImageLayer :: IOSLA (XIOState ()) (XmlTree, b) Layer
 doImageLayer = arr fst >>> hasName "imagelayer"
                        >>> id &&& image
-                       >>> proc (l, layerImage) -> do
-  (layerName, layerOpacity, layerIsVisible, layerProperties) <-
-    doLayerProps -< l
-  returnA -< ImageLayer{..}
+                       >>> proc (l, img) -> do
+  let layerContents = LayerContentsImage img
+  (layerName,layerOpacity,layerIsVisible,layerProperties,layerOffset)
+    <- doLayerFields -< l
+  returnA -< Layer{..}
 
 doLayer :: IOSLA (XIOState ()) (XmlTree, (Int, Int)) Layer
 doLayer = first (hasName "layer") >>> arr fst &&& (doData >>> arr Left) >>> common
 
-doData :: IOSLA (XIOState ()) (NTree XNode, (Int, Int)) (Map (Int, Int) TileIndex)
+doData :: IOSLA (XIOState ()) (NTree XNode, (Int, Int)) TileData
 doData = first (getChildren >>> isElem >>> hasName "data")
-      >>> proc (dat, (w, h)) -> do
+      >>> proc (dat, (w, _)) -> do
             encoding    <- getAttrValue "encoding"        -< dat
             compression <- getAttrValue "compression"     -< dat
             text        <- getText . isText . getChildren -< dat
-            returnA -< dataToIndices w h encoding compression text
+            returnA -< dataToIndices w encoding compression text
 
--- Width -> Height -> Encoding -> Compression -> Data -> [Tile]
-dataToIndices :: Int -> Int -> String -> String -> String -> Map (Int, Int) TileIndex
-dataToIndices w h "base64" "gzip" = toMap w h . base64 GZip.decompress
-dataToIndices w h "base64" "zlib" = toMap w h . base64 Zlib.decompress
-dataToIndices w h "csv"    _      = toMap w h . csv
-dataToIndices _ _ _ _ = error "unsupported tile data format, only base64 with \
-                            \gzip/zlib and csv are supported at the moment."
+dataToIndices :: Int -> String -> String -> String -> TileData
+dataToIndices w "base64" "gzip" = toVector w . base64 GZip.decompress
+dataToIndices w "base64" "zlib" = toVector w . base64 Zlib.decompress
+dataToIndices w "csv"    _      = toVector w . csv
+dataToIndices _ _ _ = error "unsupported tile data format, only base64 with \
+                          \gzip/zlib and csv are supported at the moment."
 
-toMap :: Int -> t -> [TileIndex] -> Map (Int, Int) TileIndex
-toMap w _ = fromDistinctAscList . sort . filter (\(_, x) -> tileIndexGid x /= 0)
-            . zipWith (\ndx t -> ((mkX w ndx, mkY w ndx), t)) [0..]
-
-mkX,mkY :: Int -> Int -> Int
-mkX w ndx = ndx - mkY w ndx * fromIntegral w
-mkY w ndx = floor $ (fromIntegral ndx :: Double) / fromIntegral w
+toVector :: Int -> [TileIndex] -> TileData
+toVector w = unfoldr (f . splitAt w)
+   where f ([], _)   = Nothing
+         f (x, rest) = Just (fromList $ map tileToMaybe x, rest)
+         tileToMaybe t@TileIndex {..} | tileIndexGid == 0 = Nothing
+                                      | otherwise = Just t
 
 base64 :: (LBS.ByteString -> LBS.ByteString) -> String -> [TileIndex]
 base64 f = wordsToIndices . bytesToWords . LBS.unpack . f . LBS.fromChunks
@@ -203,25 +205,26 @@ csv = wordsToIndices . map (read :: String -> Word32)
                    . splitOn ","
                    . filter (`elem` (',':['0' .. '9']))
 
-bytesToWords :: [Char] -> [Word32]
+bytesToWords :: String -> [Word32]
 bytesToWords []           = []
 bytesToWords (a:b:c:d:xs) = n : bytesToWords xs
   where n = f a + f b * 256 + f c * 65536 + f d * 16777216
         f = fromIntegral . fromEnum :: Char -> Word32
 bytesToWords _            = error "number of bytes not a multiple of 4."
 
-common
-  :: IOSLA (XIOState ()) (XmlTree, Either (Map (Int, Int) TileIndex) [Object]) Layer
+common :: IOSLA (XIOState ()) (XmlTree, Either TileData [Object]) Layer
 common = proc (l, px) -> do
-    (layerName, layerOpacity, layerIsVisible, layerProperties) <-
-      doLayerProps -< l
-    returnA -< case px of Left  layerData    -> Layer {..}
-                          Right layerObjects -> ObjectLayer {..}
+  let layerContents = either LayerContentsTiles LayerContentsObjects px
+  (layerName, layerOpacity, layerIsVisible, layerProperties, layerOffset) <-
+    doLayerFields -< l
+  returnA -< Layer{..}
 
 layers :: IOSArrow (XmlTree, (Int, Int)) [Layer]
-layers = listA (first (getChildren >>> isElem) >>> doObjectGroup
+layers = listA (first (getChildren >>> isElem) >>> doObjectLayer
                                                <+> doLayer
                                                <+> doImageLayer)
+  where doObjectLayer =
+          arr fst >>> (id &&& (doObjectGroup >>> arr Right)) >>> common
 --------------------------------------------------------------------------------
 -- TileSet
 --------------------------------------------------------------------------------

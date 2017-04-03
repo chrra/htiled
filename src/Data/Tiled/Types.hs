@@ -1,8 +1,8 @@
 {-# LANGUAGE RecordWildCards #-}
 module Data.Tiled.Types where
 
-import           Data.Map  (Map)
-import           Data.Word (Word32, Word8)
+import           Data.Vector (Vector)
+import           Data.Word   (Word32, Word8)
 
 -- | Orientations.
 data MapOrientation = Orthogonal | Isometric deriving (Show, Eq)
@@ -36,7 +36,7 @@ data Tileset = Tileset
              } deriving (Show, Eq)
 
 -- | One frame of an animation.
-data Frame = Frame { frameTileId   :: Int
+data Frame = Frame { frameTileId   :: Word32
                    -- ^ The local ID of a tile within the parent TileSet.
                    , frameDuration :: Int
                    -- ^ How long (in milliseconds) this frame should be
@@ -48,13 +48,13 @@ newtype Animation = Animation { animationFrames :: [Frame] }
                   deriving (Show, Eq, Ord)
 
 -- | A tile as defined in a TileSet.
-data Tile = Tile { tileId         :: Word32
+data Tile = Tile { tileId          :: Word32
                  -- ^ The local tile ID within its tileset.
                  -- TODO: Add terrain and probability
-                 , tileProperties :: Properties
-                 , tileImage      :: Maybe Image
-                 --, tileObjectGroup :: Maybe Layer
-                 , tileAnimation  :: Maybe Animation
+                 , tileProperties  :: Properties
+                 , tileImage       :: Maybe Image
+                 , tileObjectGroup :: [Object]
+                 , tileAnimation   :: Maybe Animation
                  } deriving (Show, Eq)
 
 -- | An image containing tiles.
@@ -82,30 +82,6 @@ newtype Polygon = Polygon [(Int, Int)] deriving (Show, Eq)
 -- | A polyline.
 newtype Polyline = Polyline [(Int, Int)] deriving (Show, Eq)
 
--- | Either a tile layer or an object layer.
-data Layer = Layer
-           { layerName       :: String
-           , layerOpacity    :: Float
-           , layerIsVisible  :: Bool
-           , layerProperties :: Properties
-           , layerData       :: Map (Int, Int) TileIndex
-           }
-           | ObjectLayer
-           { layerName       :: String
-           , layerOpacity    :: Float
-           , layerIsVisible  :: Bool
-           , layerProperties :: Properties
-           , layerObjects    :: [Object]
-           }
-           | ImageLayer
-           { layerName       :: String
-           , layerOpacity    :: Float
-           , layerIsVisible  :: Bool
-           , layerProperties :: Properties
-           , layerImage      :: Image
-           } deriving Eq
-
-
 -- | A single tile index as is stored in a layer.
 data TileIndex = TileIndex { tileIndexGid           :: Word32
                            , tileIndexIsVFlipped    :: Bool
@@ -113,19 +89,25 @@ data TileIndex = TileIndex { tileIndexGid           :: Word32
                            , tileIndexIsDiagFlipped :: Bool
                            } deriving (Show, Eq, Ord)
 
-instance Show Layer where
-    show Layer {..} = "Layer { layerName = " ++ show layerName ++
-                            ", layerOpacity = " ++ show layerOpacity ++
-                            ", layerIsVisible = " ++ show layerIsVisible ++
-                            ", layerProperties = " ++ show layerProperties ++
-                            ", layerData = \"...\" }"
-    show ObjectLayer {..} = "ObjectLayer { layerName = " ++ show layerName ++
-                                        ", layerOpacity = " ++ show layerOpacity ++
-                                        ", layerIsVisible = " ++ show layerIsVisible ++
-                                        ", layerProperties = " ++ show layerProperties ++
-                                        ", layerObjects = " ++ show layerObjects ++ " }"
-    show ImageLayer {..} = "ObjectLayer { layerName = " ++ show layerName ++
-                                       ", layerOpacity = " ++ show layerOpacity ++
-                                       ", layerIsVisible = " ++ show layerIsVisible ++
-                                       ", layerProperties = " ++ show layerProperties ++
-                                       ", layerImage = " ++ show layerImage ++ " }"
+-- | A collection of multidimensional tile data.
+type TileData = Vector (Vector (Maybe TileIndex))
+
+-- | A layer's tile contents.
+data LayerContents = LayerContentsTiles   TileData
+                   | LayerContentsObjects [Object]
+                   | LayerContentsImage   Image
+                   deriving (Eq)
+
+instance Show LayerContents where
+    show (LayerContentsTiles _)      = "LayerContentsTiles ..."
+    show (LayerContentsObjects objs) = "LayerContentsObjects " ++ show objs
+    show (LayerContentsImage img)    = "LayerContentsImage "   ++ show img
+
+-- | An entire layer of tiled data.
+data Layer = Layer { layerName       :: String
+                   , layerOpacity    :: Float
+                   , layerIsVisible  :: Bool
+                   , layerProperties :: Properties
+                   , layerOffset     :: (Int, Int)
+                   , layerContents   :: LayerContents
+                   } deriving (Show, Eq)
