@@ -9,7 +9,7 @@ Author:              Christian Rødli Amble, Schell Scivally
 Maintainer:          efsubenovex@gmail.com
 Category:            Game
 Build-type:          Simple
-Cabal-version:       >=1.6
+Cabal-version:       >=1.8
 
 Source-Repository head
   Type:              git
@@ -27,4 +27,14 @@ Library
                      , vector
                      , zlib >= 0.5
 
-  Ghc-Options:       -Wall -Werror
+  Ghc-Options:       -Wall
+
+test-suite unittests
+  type: exitcode-stdio-1.0
+  build-depends: base
+               , htiled
+               , QuickCheck
+               , hspec
+               , hxt
+  hs-source-dirs: tests
+  main-is: UnitTests.hs
