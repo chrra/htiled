@@ -1,25 +1,29 @@
 {-# LANGUAGE Arrows          #-}
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
-module Data.Tiled.Load (loadMapFile, loadMap) where
+module Data.Tiled.Load
+  (loadMapFile
+  , loadMap
+  , tile
+  , load
+  , loadApply
+  ) where
 
-import           Control.Category           (id, (.))
-import           Data.Bits                  (clearBit, testBit)
-import qualified Data.ByteString.Base64     as B64
-import qualified Data.ByteString.Char8      as BS
+import qualified Codec.Compression.GZip as GZip
+import qualified Codec.Compression.Zlib as Zlib
+import           Control.Category (id, (.))
+import           Data.Bits (clearBit, testBit)
+import qualified Data.ByteString.Base64 as B64
+import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as LBS
-import           Data.Char                  (digitToInt)
---import           Data.List                  (unfoldr)
-import           Data.List.Split            (splitOn)
-import           Data.Maybe                 (fromMaybe, isNothing, listToMaybe)
-import           Data.Tree.NTree.TypeDefs   (NTree)
-import           Data.Vector                (fromList, unfoldr)
-import           Data.Word                  (Word32)
-import           Prelude                    hiding (id, (.))
-
-import qualified Codec.Compression.GZip     as GZip
-import qualified Codec.Compression.Zlib     as Zlib
-import           System.FilePath            (dropFileName, (</>))
+import           Data.Char (digitToInt)
+import           Data.List.Split (splitOn)
+import           Data.Maybe (fromMaybe, isNothing, listToMaybe)
+import           Data.Tree.NTree.TypeDefs (NTree)
+import           Data.Vector (fromList, unfoldr)
+import           Data.Word (Word32)
+import           Prelude hiding (id, (.))
+import           System.FilePath (dropFileName, (</>))
 import           Text.XML.HXT.Core
 
 import           Data.Tiled.Types
@@ -32,12 +36,18 @@ loadMap str = load (readString [] str) "binary"
 loadMapFile :: FilePath -> IO TiledMap
 loadMapFile fp = load (readDocument [] fp) fp
 
-load :: IOStateArrow () XmlTree XmlTree -> FilePath -> IO TiledMap
-load a fp = head `fmap` runX (
+loadApply :: IOStateArrow () XmlTree XmlTree
+          -> IOStateArrow () XmlTree a
+          -> IO a
+loadApply generateXmlA readDataA =
+  head `fmap` runX (
         configSysVars [withValidate no, withWarnings yes]
-    >>> a
+    >>> generateXmlA
     >>> getChildren >>> isElem
-    >>> doMap fp)
+    >>> readDataA)
+
+load :: IOStateArrow () XmlTree XmlTree -> FilePath -> IO TiledMap
+load a fp = loadApply a (doMap fp)
 
 getAttrR :: (Read a, Num a) => String -> IOSArrow XmlTree a
 getAttrR a = arr read . getAttrValue0 a
@@ -68,15 +78,19 @@ animation = getChildren >>> isElem >>> hasName "animation"
                         >>> arr Animation
 
 tile :: IOSArrow XmlTree Tile
-tile = getChildren >>> isElem >>> hasName "tile" >>> getTile
- where getTile :: IOSArrow XmlTree Tile
-       getTile = proc xml -> do
-         tileId          <- getAttrR "id"                 -< xml
-         tileProperties  <- properties                    -< xml
-         tileImage       <- arr listToMaybe . listA image -< xml
-         tileObjectGroup <- doObjectGroup -< xml
-         tileAnimation   <- arr listToMaybe . listA animation -< xml
-         returnA -< Tile{..}
+tile = isElem >>> hasName "tile" >>> getTile
+ where
+   tileImage = Nothing
+   tileObjectGroup = []
+   tileAnimation = Nothing
+   getTile :: IOSArrow XmlTree Tile
+   getTile = proc xml -> do
+     tileId          <- getAttrR "id"                 -< xml
+     tileProperties  <- properties                    -< xml
+     -- tileImage       <- arr listToMaybe . listA image -< xml
+     -- tileObjectGroup <- flip withDefault [] doObjectGroup -< xml
+     -- tileAnimation   <- arr listToMaybe . listA animation -< xml
+     returnA -< Tile{..}
 
 doMap :: FilePath -> IOSArrow XmlTree TiledMap
 doMap mapPath = proc m -> do
@@ -243,7 +257,7 @@ externalTileset mapPath =
 
 tileset :: IOSArrow (Word32, XmlTree) Tileset
 tileset = proc (tsInitialGid, ts) -> do
-  tsName           <- getAttrValue "name"                           -< ts
+  tsName <- getAttrValue "name" -< ts
   tsTileWidth      <- getAttrR "tilewidth"                          -< ts
   tsTileHeight     <- getAttrR "tileheight"                         -< ts
   tsTileCount      <- arr (fromMaybe 0) . getAttrMaybeR "tilecount" -< ts
@@ -252,7 +266,7 @@ tileset = proc (tsInitialGid, ts) -> do
   tsImages         <- images                                     -< ts
   --tsTileProperties <- listA tileProperties                          -< ts
   tsProperties <- listA properties -< ts
-  tsTiles      <- listA tile       -< ts
+  tsTiles <- listA tile <<< getChildren -< ts
   returnA -< Tileset {..}
     where images = listA (getChildren >>> image)
 

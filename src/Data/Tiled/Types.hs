@@ -69,8 +69,8 @@ data Object = Object
             { objectName                :: Maybe String
             , objectType                :: Maybe String
             , objectProperties          :: Properties
-            , objectX, objectY          :: Int
-            , objectWidth, objectHeight :: Maybe Int
+            , objectX, objectY          :: Double
+            , objectWidth, objectHeight :: Maybe Double
             , objectGid                 :: Maybe Word32
             , objectPolygon             :: Maybe Polygon
             , objectPolyline            :: Maybe Polyline

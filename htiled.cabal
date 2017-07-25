@@ -36,5 +36,7 @@ test-suite unittests
                , QuickCheck
                , hspec
                , hxt
+               , xmlgen
+               , bytestring
   hs-source-dirs: tests
   main-is: UnitTests.hs
