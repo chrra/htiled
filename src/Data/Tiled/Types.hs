@@ -33,6 +33,7 @@ data Tileset = Tileset
                                                     -- yet supported in tiled.
              , tsProperties              :: [Properties]
              , tsTiles                   :: [Tile]
+             , tsColumns                 :: Int
              } deriving (Show, Eq)
 
 -- | One frame of an animation.

@@ -4,7 +4,9 @@
 module Data.Tiled.Load
   (loadMapFile
   , loadMap
+  , properties
   , tile
+  , tileset
   , load
   , loadApply
   ) where
@@ -62,9 +64,19 @@ getAttrMaybe a = arr tm . getAttrValue a
         tm s  = Just s
 
 properties :: IOSArrow XmlTree Properties
-properties = listA $ getChildren >>> isElem >>> hasName "properties"
-            >>> getChildren >>> isElem >>> hasName "property"
-            >>> getAttrValue "name" &&& getAttrValue "value"
+properties =
+  hasName "properties" >>> listA
+  (getChildren >>> property)
+  where
+    property =
+      hasName "property" >>>
+      proc xml -> do
+          propName <- getAttrValue "name" -< xml
+          propValue <- getAttrValue "value" -< xml
+          returnA -< (propName,propValue)
+
+entityProperties =
+  arr concat <<< listA properties <<< getChildren
 
 frame :: IOSArrow XmlTree Frame
 frame = getChildren >>> isElem >>> hasName "frame" >>> proc xml -> do
@@ -86,7 +98,7 @@ tile = isElem >>> hasName "tile" >>> getTile
    getTile :: IOSArrow XmlTree Tile
    getTile = proc xml -> do
      tileId          <- getAttrR "id"                 -< xml
-     tileProperties  <- properties                    -< xml
+     tileProperties <- entityProperties -< xml
      -- tileImage       <- arr listToMaybe . listA image -< xml
      -- tileObjectGroup <- flip withDefault [] doObjectGroup -< xml
      -- tileAnimation   <- arr listToMaybe . listA animation -< xml
@@ -102,7 +114,7 @@ doMap mapPath = proc m -> do
     mapHeight      <- getAttrR "height"     -< m
     mapTileWidth   <- getAttrR "tilewidth"  -< m
     mapTileHeight  <- getAttrR "tileheight" -< m
-    mapProperties  <- properties            -< m
+    mapProperties  <- entityProperties -< m
     mapTilesets    <- tilesets mapPath      -< m
     mapLayers      <- layers                -< (m, (mapWidth, mapHeight))
     returnA        -< TiledMap {..}
@@ -256,19 +268,21 @@ externalTileset mapPath =
   >>> getChildren >>> isElem >>> hasName "tileset"
 
 tileset :: IOSArrow (Word32, XmlTree) Tileset
-tileset = proc (tsInitialGid, ts) -> do
-  tsName <- getAttrValue "name" -< ts
-  tsTileWidth      <- getAttrR "tilewidth"                          -< ts
-  tsTileHeight     <- getAttrR "tileheight"                         -< ts
-  tsTileCount      <- arr (fromMaybe 0) . getAttrMaybeR "tilecount" -< ts
-  tsMargin         <- arr (fromMaybe 0) . getAttrMaybeR "margin"    -< ts
-  tsSpacing        <- arr (fromMaybe 0) . getAttrMaybeR "spacing"   -< ts
-  tsImages         <- images                                     -< ts
-  --tsTileProperties <- listA tileProperties                          -< ts
-  tsProperties <- listA properties -< ts
-  tsTiles <- listA tile <<< getChildren -< ts
-  returnA -< Tileset {..}
-    where images = listA (getChildren >>> image)
+tileset = second (isElem >>> hasName "tileset") >>> (
+  proc (tsInitialGid, ts) -> do
+    tsName <- getAttrValue "name" -< ts
+    tsTileWidth      <- getAttrR "tilewidth"                          -< ts
+    tsTileHeight     <- getAttrR "tileheight"                         -< ts
+    tsTileCount      <- arr (fromMaybe 0) . getAttrMaybeR "tilecount" -< ts
+    tsMargin         <- arr (fromMaybe 0) . getAttrMaybeR "margin"    -< ts
+    tsSpacing        <- arr (fromMaybe 0) . getAttrMaybeR "spacing"   -< ts
+    tsImages         <- images                                     -< ts
+    tsColumns <- getAttrR "columns" -< ts
+    tsProperties <- listA properties -< ts
+    tsTiles <- listA tile <<< getChildren -< ts
+    returnA -< Tileset {..}
+  )
+  where images = listA (getChildren >>> image)
 
 data ImageType = TileImage | NormalImage deriving (Read)
 
