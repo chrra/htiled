@@ -14,11 +14,16 @@ import           Prelude hiding (show)
 import           Test.Hspec
 import           Test.QuickCheck
 import           Text.XML.Generator
-import           Text.XML.HXT.Core
+import           Text.XML.HXT.Core hiding (trace)
+
+import           Debug.Trace
+
+traceMap :: (Show b) => (a -> b) -> a -> a
+traceMap f x = trace (show . f $ x) x
 
 main = hspec tests
 
-parseXml action xmlElems =
+parseXml action xmlElems = Prelude.head <$>
   loadApply (readString [] (BS.unpack $ xrender xmlElems)) action
 
 show :: (Show a, IsString s) => a -> s
@@ -87,6 +92,25 @@ tests = do
       parseXml properties (xelem "properties" $ xelems
                            [ propertyToXml "test" "test"]) `shouldReturn`
         [("test","test")]
-  -- describe "Data.Tiled.Load.tileset" $ do
-  --   it "parses regular tilesets" $ do
-  --     parseXml tileset examplesTilesetX `shouldReturn` exampleTileset
+  describe "Data.Tiled.Load.tileset" $ do
+    it "parses regular tilesets" $ do
+      let
+        exampleTileset =
+          Tileset { tsName = "test"
+                  , tsInitialGid = 1
+                  , tsColumns = 2
+                  , tsTileWidth = 1
+                  , tsTileHeight = 1
+                  , tsImages = []
+                  , tsTileCount = 2
+                  , tsTiles =
+                      [
+                        minimalTile{tileId=1}
+                      , minimalTile{tileId=2}
+                      ]
+                  , tsSpacing = 0
+                  , tsMargin = 0
+                  , tsProperties = []
+                  }
+      parseXml tileset (tilesetToXml exampleTileset) `shouldReturn`
+        exampleTileset

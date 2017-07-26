@@ -40,16 +40,16 @@ loadMapFile fp = load (readDocument [] fp) fp
 
 loadApply :: IOStateArrow () XmlTree XmlTree
           -> IOStateArrow () XmlTree a
-          -> IO a
+          -> IO [a]
 loadApply generateXmlA readDataA =
-  head `fmap` runX (
+  runX (
         configSysVars [withValidate no, withWarnings yes]
     >>> generateXmlA
     >>> getChildren >>> isElem
     >>> readDataA)
 
 load :: IOStateArrow () XmlTree XmlTree -> FilePath -> IO TiledMap
-load a fp = loadApply a (doMap fp)
+load a fp = head <$> loadApply a (doMap fp)
 
 getAttrR :: (Read a, Num a) => String -> IOSArrow XmlTree a
 getAttrR a = arr read . getAttrValue0 a
@@ -76,7 +76,7 @@ properties =
           returnA -< (propName,propValue)
 
 entityProperties =
-  arr concat <<< listA properties <<< getChildren
+  arr (fromMaybe [] . listToMaybe) <<< listA properties <<< getChildren
 
 frame :: IOSArrow XmlTree Frame
 frame = getChildren >>> isElem >>> hasName "frame" >>> proc xml -> do
@@ -97,7 +97,7 @@ tile = isElem >>> hasName "tile" >>> getTile
    tileAnimation = Nothing
    getTile :: IOSArrow XmlTree Tile
    getTile = proc xml -> do
-     tileId          <- getAttrR "id"                 -< xml
+     tileId          <- getAttrR "id" -< xml
      tileProperties <- entityProperties -< xml
      -- tileImage       <- arr listToMaybe . listA image -< xml
      -- tileObjectGroup <- flip withDefault [] doObjectGroup -< xml
@@ -256,9 +256,7 @@ layers = listA (first (getChildren >>> isElem) >>> doObjectLayer
 --------------------------------------------------------------------------------
 tilesets :: FilePath -> IOSArrow XmlTree [Tileset]
 tilesets fp =
-  listA $ getChildren >>> isElem >>> hasName "tileset"
-  >>> getAttrR "firstgid" &&& ifA (hasAttr "source") (externalTileset fp) id
-  >>> tileset
+  listA $ getChildren >>> tileset
 
 externalTileset :: FilePath -> IOSArrow XmlTree XmlTree
 externalTileset mapPath =
@@ -267,21 +265,21 @@ externalTileset mapPath =
   >>> readFromDocument [ withValidate no, withWarnings yes ]
   >>> getChildren >>> isElem >>> hasName "tileset"
 
-tileset :: IOSArrow (Word32, XmlTree) Tileset
-tileset = second (isElem >>> hasName "tileset") >>> (
-  proc (tsInitialGid, ts) -> do
+tileset :: IOSArrow XmlTree Tileset
+tileset = isElem >>> hasName "tileset" >>>
+  proc ts -> do
     tsName <- getAttrValue "name" -< ts
-    tsTileWidth      <- getAttrR "tilewidth"                          -< ts
-    tsTileHeight     <- getAttrR "tileheight"                         -< ts
-    tsTileCount      <- arr (fromMaybe 0) . getAttrMaybeR "tilecount" -< ts
-    tsMargin         <- arr (fromMaybe 0) . getAttrMaybeR "margin"    -< ts
-    tsSpacing        <- arr (fromMaybe 0) . getAttrMaybeR "spacing"   -< ts
-    tsImages         <- images                                     -< ts
+    tsInitialGid <- getAttrR "firstgid" -< ts
+    tsTileWidth <- getAttrR "tilewidth" -< ts
+    tsTileHeight <- getAttrR "tileheight" -< ts
+    tsTileCount <- arr (fromMaybe 0) . getAttrMaybeR "tilecount" -< ts
+    tsMargin <- arr (fromMaybe 0) . getAttrMaybeR "margin" -< ts
+    tsSpacing <- arr (fromMaybe 0) . getAttrMaybeR "spacing" -< ts
+    tsImages <- images -< ts
     tsColumns <- getAttrR "columns" -< ts
     tsProperties <- listA properties -< ts
-    tsTiles <- listA tile <<< getChildren -< ts
+    tsTiles <- listA (tile <<< getChildren) -< ts
     returnA -< Tileset {..}
-  )
   where images = listA (getChildren >>> image)
 
 data ImageType = TileImage | NormalImage deriving (Read)
