@@ -258,7 +258,7 @@ tilesets :: FilePath -> IOSArrow XmlTree [Tileset]
 tilesets fp = proc xml -> do
   internalTs <- listA (tileset <<< getChildren) -< xml
   externalTs <- listA (externalTileset fp <<< getChildren) -< xml
-  returnA -< (internalTs ++ internalTs :: [Tileset])
+  returnA -< (internalTs ++ externalTs)
 
 externalTileset :: FilePath -> IOSArrow XmlTree Tileset
 externalTileset mapPath =
