@@ -255,15 +255,17 @@ layers = listA (first (getChildren >>> isElem) >>> doObjectLayer
 -- TileSet
 --------------------------------------------------------------------------------
 tilesets :: FilePath -> IOSArrow XmlTree [Tileset]
-tilesets fp =
-  listA $ getChildren >>> tileset
+tilesets fp = proc xml -> do
+  internalTs <- listA (tileset <<< getChildren) -< xml
+  externalTs <- listA (externalTileset fp <<< getChildren) -< xml
+  returnA -< (internalTs ++ internalTs :: [Tileset])
 
-externalTileset :: FilePath -> IOSArrow XmlTree XmlTree
+externalTileset :: FilePath -> IOSArrow XmlTree Tileset
 externalTileset mapPath =
   arr (const (dropFileName mapPath)) &&& getAttrValue "source"
   >>> arr (uncurry (</>))
   >>> readFromDocument [ withValidate no, withWarnings yes ]
-  >>> getChildren >>> isElem >>> hasName "tileset"
+  >>> getChildren >>> tileset
 
 tileset :: IOSArrow XmlTree Tileset
 tileset = isElem >>> hasName "tileset" >>>
