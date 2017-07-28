@@ -3,6 +3,7 @@
 module Data.Tiled.Test.Xml where
 
 import           Data.ByteString.Lazy.Char8 as BS
+import           Data.Char
 import           Data.String
 import qualified Prelude
 import           Prelude hiding (show)
@@ -61,8 +62,37 @@ tileToXml tile =
     tileAttrs = xattrs
       [ xattr "id" (show . tileId $ tile)
       ]
-    tileChildren = xelems
+    tileChildren = xelems $
       [ props
-      ]
+      ] ++ img
     props :: Xml Elem
     props = propertiesToXml (tileProperties tile)
+    img :: [Xml Elem]
+    img = case tileImage tile of
+      Nothing -> []
+      Just i ->
+        let
+          trans = case iTrans i of
+            Nothing -> []
+            Just (r,g,b) ->
+              [ xattr "trans"
+                (fromString $
+                 showAsHex (fromIntegral r) ++
+                 showAsHex (fromIntegral g) ++
+                 showAsHex (fromIntegral b)
+                )
+              ]
+        in
+          [ xelem "image" $ xattrs $
+            [ xattr "width" (show . iWidth $ i)
+            , xattr "height" (show . iHeight $ i)
+            , xattr "source" (fromString . iSource $ i)
+            ] ++ trans
+          ]
+
+showAsHex n
+  | n < 0 = error "showAsHex not implemented for negative numbers"
+  | n == 0 = "0"
+  | otherwise =
+    (if (n `div` 16) > 0 then showAsHex (n `div` 16) else []) ++
+    [intToDigit (n `mod` 16)]

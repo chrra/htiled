@@ -93,14 +93,14 @@ animation = getChildren >>> isElem >>> hasName "animation"
 tile :: IOSArrow XmlTree Tile
 tile = isElem >>> hasName "tile" >>> getTile
  where
-   tileImage = Nothing
    tileObjectGroup = []
    tileAnimation = Nothing
    getTile :: IOSArrow XmlTree Tile
    getTile = proc xml -> do
      tileId          <- getAttrR "id" -< xml
      tileProperties <- entityProperties -< xml
-     -- tileImage       <- arr listToMaybe . listA image -< xml
+     tileImage       <- arr listToMaybe .
+                        listA (image <<< getChildren) -< xml
      -- tileObjectGroup <- flip withDefault [] doObjectGroup -< xml
      -- tileAnimation   <- arr listToMaybe . listA animation -< xml
      returnA -< Tile{..}
