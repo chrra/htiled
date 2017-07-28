@@ -1,6 +1,7 @@
 {-# LANGUAGE Arrows          #-}
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TupleSections #-}
 module Data.Tiled.Load
   (loadMapFile
   , loadMap
@@ -260,24 +261,31 @@ doLayer = proc (xml,(w,_)) -> do
   returnA -< l
 
 tilesets :: FilePath -> IOSArrow XmlTree [Tileset]
-tilesets fp = proc xml -> do
-  internalTs <- listA (tileset <<< getChildren) -< xml
-  externalTs <- listA (externalTileset fp <<< getChildren) -< xml
-  returnA -< (internalTs ++ externalTs)
+tilesets fp = listA (getChildren >>> tileset fp)
+
+tileset :: FilePath -> IOSArrow XmlTree Tileset
+tileset fp =
+  (arr (Nothing,) >>> internalTileset) <+>
+  externalTileset fp
 
 externalTileset :: FilePath -> IOSArrow XmlTree Tileset
-externalTileset mapPath =
-  hasName "tileset" >>> hasAttr "source" >>>
-  arr (const (dropFileName mapPath)) &&& getAttrValue "source"
-  >>> arr (uncurry (</>))
-  >>> readFromDocument [ withValidate no, withWarnings yes ]
-  >>> getChildren >>> tileset
+externalTileset mapPath = hasName "tileset" >>>
+  hasAttr "source" >>> proc xml -> do
+    source <- arr ((dropFileName mapPath) </>) <<<
+              getAttrValue "source" -< xml
+    gid <- getAttrR "firstgid" -< xml
+    externalDocument <-
+      readFromDocument [ withValidate no, withWarnings yes] -< source
+    ts <- internalTileset  <<<
+          second getChildren <<<
+          first (arr Just) -< (gid,externalDocument)
+    returnA -< ts
 
-tileset :: IOSArrow XmlTree Tileset
-tileset = isElem >>> hasName "tileset" >>>
-  proc ts -> do
+internalTileset :: IOSArrow (Maybe Word32, XmlTree) Tileset
+internalTileset = second (isElem >>> hasName "tileset") >>>
+  proc (maybeGid,ts) -> do
     tsName <- getAttrValue "name" -< ts
-    tsInitialGid <- getAttrR "firstgid" -< ts
+    maybeGidHere <- getAttrMaybeR "firstgid" -< ts
     tsTileWidth <- getAttrR "tilewidth" -< ts
     tsTileHeight <- getAttrR "tileheight" -< ts
     tsTileCount <- arr (fromMaybe 0) .
@@ -288,6 +296,11 @@ tileset = isElem >>> hasName "tileset" >>>
     tsColumns <- getAttrR "columns" -< ts
     tsProperties <- entityProperties -< ts
     tsTiles <- listA (tile <<< getChildren) -< ts
+    let
+      tsInitialGid =
+        fromMaybe (error "Cannot load gid from tileset") $
+        maybe maybeGidHere Just $
+        maybeGid
     returnA -< Tileset {..}
   where images = listA (getChildren >>> image)
 

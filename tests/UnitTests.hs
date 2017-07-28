@@ -73,11 +73,11 @@ tests = do
   describe "Data.Tiled.Load.tileset" $ do
     it "parses tilesets without properties" $ do
       property $ \ (ArbTilesetNoProperties ts) -> monadicIO $ do
-        parsedTs <- run (parseXml tileset (tilesetToXml ts))
+        parsedTs <- run (parseXml (tileset "") (tilesetToXml ts))
         assert (parsedTs == ts)
     it "parses regular tilesets" $ do
       property $ \ (ArbTileset ts) -> monadicIO $
-        run (parseXml tileset (tilesetToXml ts)) >>=
+        run (parseXml (tileset "") (tilesetToXml ts)) >>=
         assert . (== ts)
   describe "Data.Tiled.Load.doMap" $ do
     it "parses a minimal empty tiled map" $ do
@@ -86,15 +86,16 @@ tests = do
         (5,5)
     it "parses a map with one embedded tileset" $ do
       mapFile <- loadTestMapFile "with-tileset.tmx"
-      (Prelude.length . mapTilesets $ mapFile) `shouldBe`
-        1
+      (Prelude.length . mapTilesets $ mapFile) `shouldBe` 1
     it "parses a map with one tile layer" $ do
       mapFile <- loadTestMapFile "with-tileset.tmx"
-      (Prelude.length . mapLayers $ mapFile) `shouldBe`
-        1
+      (Prelude.length . mapLayers $ mapFile) `shouldBe` 1
+    it "parses a map with one external tileset" $ do
+      mapFile <- loadTestMapFile "with-external-tileset.tmx"
+      (Prelude.length . mapTilesets $ mapFile) `shouldBe` 1
   describe "Data.Tiled.Load.doLayer" $ do
     it "parses imagelayers" $ do
       property $ \ (ArbImageLayer l) -> monadicIO $
         run (parseXml (arr (\ xml -> (xml,(1,1))) >>>
                        doLayer) (layerToXml l)) >>=
-        assert . (traceMap id l ==) . traceMap id
+        assert . (l ==)
