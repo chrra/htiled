@@ -108,9 +108,7 @@ tile = isElem >>> hasName "tile" >>> getTile
 
 doMap :: FilePath -> IOSArrow XmlTree TiledMap
 doMap mapPath = proc m -> do
-    mapOrientation <- arr (\case "orthogonal" -> Orthogonal
-                                 "isometric"  -> Isometric
-                                 _            -> error "unsupported orientation")
+    mapOrientation <- arr parseOrientation
                      . getAttrValue "orientation" -< m
     mapWidth       <- getAttrR "width"      -< m
     mapHeight      <- getAttrR "height"     -< m
@@ -120,6 +118,11 @@ doMap mapPath = proc m -> do
     mapTilesets    <- tilesets mapPath      -< m
     mapLayers      <- layers                -< (m, (mapWidth, mapHeight))
     returnA        -< TiledMap {..}
+  where
+    parseOrientation = \case
+      "orthogonal" -> Orthogonal
+      "isometric"  -> Isometric
+      _            -> error "unsupported orientation"
 
 -- | When you use the tile flipping feature added in Tiled Qt 0.7, the highest
 -- two bits of the gid store the flipped state. Bit 32 is used for storing
@@ -264,7 +267,7 @@ tilesets fp = proc xml -> do
 
 externalTileset :: FilePath -> IOSArrow XmlTree Tileset
 externalTileset mapPath =
-  hasName "tileset" >>>
+  hasName "tileset" >>> hasAttr "source" >>>
   arr (const (dropFileName mapPath)) &&& getAttrValue "source"
   >>> arr (uncurry (</>))
   >>> readFromDocument [ withValidate no, withWarnings yes ]

@@ -84,3 +84,8 @@ tests = do
       mapFile <- loadTestMapFile "empty.tmx"
       (mapWidth mapFile, mapHeight mapFile) `shouldBe`
         (5,5)
+  describe "Data.Tiled.Load.doMap" $ do
+    it "parses a map with one embedded tileset" $ do
+      mapFile <- loadTestMapFile "with-tileset.tmx"
+      (Prelude.length . mapTilesets $ mapFile) `shouldBe`
+        1
