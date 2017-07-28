@@ -12,7 +12,7 @@ newtype ArbName = ArbName { getName :: String } deriving Show
 instance Arbitrary ArbName where
   arbitrary = ArbName <$> do
     (listOf $ oneof (return <$> ['a'..'z'])) `suchThat`
-      ( \ l -> Prelude.length l < 100)
+      ( \ l -> Prelude.length l < 100 && Prelude.length l > 0)
 
 newtype ArbProperties = ArbProperties { getProperties :: Properties }
   deriving Show
@@ -28,6 +28,20 @@ instance Arbitrary ArbProperties where
           , ("otherName","otherValue")
           ]
         ]
+
+newtype ArbImageLayer = ArbImageLayer { getImageLayer :: Layer }
+  deriving Show
+
+instance Arbitrary ArbImageLayer where
+  arbitrary = do
+    layerName <- getName <$> arbitrary
+    layerIsVisible <- arbitrary
+    layerOpacity <- arbitrary `suchThat` (\ x -> x >= 0 && x <= 1)
+    layerProperties <- getProperties <$> arbitrary
+    layerContents <- LayerContentsImage <$> arbitraryImage 10 10
+    return . ArbImageLayer $ Layer {..}
+    where
+      layerOffset = (0,0)
 
 arbMaybe :: Gen a -> Gen (Maybe a)
 arbMaybe gen = arbitrary >>= \ isNothing ->

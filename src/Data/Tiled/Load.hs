@@ -7,6 +7,7 @@ module Data.Tiled.Load
   , properties
   , tile
   , tileset
+  , doLayer
   , doMap
   , load
   , loadApply
@@ -14,14 +15,14 @@ module Data.Tiled.Load
 
 import qualified Codec.Compression.GZip as GZip
 import qualified Codec.Compression.Zlib as Zlib
-import           Control.Category (id, (.))
+import           Control.Category ((.))
 import           Data.Bits (clearBit, testBit)
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import           Data.Char (digitToInt)
 import           Data.List.Split (splitOn)
-import           Data.Maybe (fromMaybe, isNothing, listToMaybe)
+import           Data.Maybe (fromMaybe, listToMaybe)
 import           Data.Tree.NTree.TypeDefs (NTree)
 import           Data.Vector (fromList, unfoldr)
 import           Data.Word (Word32)
@@ -49,7 +50,7 @@ loadApply generateXmlA readDataA =
     >>> getChildren >>> isElem
     >>> readDataA)
 
-load :: IOStateArrow () XmlTree XmlTree -> FilePath -> IO TiledMap
+load :: IOSArrow XmlTree XmlTree -> FilePath -> IO TiledMap
 load a fp = head <$> loadApply a (doMap fp)
 
 getAttrR :: (Read a, Num a) => String -> IOSArrow XmlTree a
@@ -94,16 +95,14 @@ animation = getChildren >>> isElem >>> hasName "animation"
 tile :: IOSArrow XmlTree Tile
 tile = isElem >>> hasName "tile" >>> getTile
  where
-   tileObjectGroup = []
-   tileAnimation = Nothing
    getTile :: IOSArrow XmlTree Tile
    getTile = proc xml -> do
      tileId          <- getAttrR "id" -< xml
      tileProperties <- entityProperties -< xml
      tileImage       <- arr listToMaybe .
                         listA (image <<< getChildren) -< xml
-     -- tileObjectGroup <- flip withDefault [] doObjectGroup -< xml
-     -- tileAnimation   <- arr listToMaybe . listA animation -< xml
+     tileObjectGroup <- flip withDefault [] doObjectGroup -< xml
+     tileAnimation   <- arr listToMaybe . listA animation -< xml
      returnA -< Tile{..}
 
 doMap :: FilePath -> IOSArrow XmlTree TiledMap
@@ -116,7 +115,7 @@ doMap mapPath = proc m -> do
     mapTileHeight  <- getAttrR "tileheight" -< m
     mapProperties  <- entityProperties -< m
     mapTilesets    <- tilesets mapPath      -< m
-    mapLayers      <- layers                -< (m, (mapWidth, mapHeight))
+    mapLayers      <- layers -< (m, (mapWidth, mapHeight))
     returnA        -< TiledMap {..}
   where
     parseOrientation = \case
@@ -177,41 +176,27 @@ doObjectGroup :: IOSLA (XIOState ()) XmlTree [Object]
 doObjectGroup = hasName "objectgroup" >>> listA object
                   -- >>> common
 
-type LayerFields = (String, Float, Bool, Properties, (Int, Int))
+doLayerData :: IOSArrow (XmlTree, Int) LayerContents
+doLayerData =
+  (doData >>> arr LayerContentsTiles) <+>
+  ( arr fst >>>
+    hasName "imagelayer" >>>
+    getChildren >>>
+    image >>>
+    arr LayerContentsImage) <+>
+  (arr fst >>> doObjectGroup >>> arr LayerContentsObjects)
 
-doLayerFields :: IOSLA (XIOState ()) XmlTree LayerFields
-doLayerFields = proc l -> do
-    name       <- getAttrValue "name" -< l
-    opacity    <- arr (fromMaybe (1 :: Float) . listToMaybe)
-                    . listA (getAttrR "opacity") -< l
-    visibility <- arr (isNothing . listToMaybe)
-                    . listA (getAttrValue "visible") -< l
-    props      <- properties -< l
-    offsetx    <- arr (fromMaybe (0 :: Int) . listToMaybe)
-                    . listA (getAttrR "offsetx") -< l
-    offsety    <- arr (fromMaybe (0 :: Int) . listToMaybe)
-                    . listA (getAttrR "offsety") -< l
-    returnA -< (name, opacity, visibility, props, (offsetx, offsety))
-
-doImageLayer :: IOSLA (XIOState ()) (XmlTree, b) Layer
-doImageLayer = arr fst >>> hasName "imagelayer"
-                       >>> id &&& image
-                       >>> proc (l, img) -> do
-  let layerContents = LayerContentsImage img
-  (layerName,layerOpacity,layerIsVisible,layerProperties,layerOffset)
-    <- doLayerFields -< l
-  returnA -< Layer{..}
-
-doLayer :: IOSLA (XIOState ()) (XmlTree, (Int, Int)) Layer
-doLayer = first (hasName "layer") >>> arr fst &&& (doData >>> arr Left) >>> common
-
-doData :: IOSLA (XIOState ()) (NTree XNode, (Int, Int)) TileData
-doData = first (getChildren >>> isElem >>> hasName "data")
-      >>> proc (dat, (w, _)) -> do
-            encoding    <- getAttrValue "encoding"        -< dat
-            compression <- getAttrValue "compression"     -< dat
-            text        <- getText . isText . getChildren -< dat
-            returnA -< dataToIndices w encoding compression text
+doData :: IOSArrow (XmlTree, Int) TileData
+doData =
+  first (hasName "layer" >>>
+         getChildren >>>
+         isElem >>>
+         hasName "data") >>>
+  proc (dat, w) -> do
+    encoding    <- getAttrValue "encoding"        -< dat
+    compression <- getAttrValue "compression"     -< dat
+    text        <- getText . isText . getChildren -< dat
+    returnA -< dataToIndices w encoding compression text
 
 dataToIndices :: Int -> String -> String -> String -> TileData
 dataToIndices w "base64" "gzip" = toVector w . base64 GZip.decompress
@@ -243,22 +228,37 @@ bytesToWords (a:b:c:d:xs) = n : bytesToWords xs
         f = fromIntegral . fromEnum :: Char -> Word32
 bytesToWords _            = error "number of bytes not a multiple of 4."
 
-common :: IOSLA (XIOState ()) (XmlTree, Either TileData [Object]) Layer
-common = proc (l, px) -> do
-  let layerContents = either LayerContentsTiles LayerContentsObjects px
-  (layerName, layerOpacity, layerIsVisible, layerProperties, layerOffset) <-
-    doLayerFields -< l
+common :: IOSArrow (XmlTree, LayerContents) Layer
+common = proc (l, layerContents) -> do
+  layerName       <- getAttrValue "name" -< l
+  layerOpacity    <- arr (fromMaybe (1 :: Float) . listToMaybe)
+                . listA (getAttrR "opacity") -< l
+  layerIsVisible <- arr (convertVisibility)
+                    . getAttrMaybeR "visible" -< l
+  layerProperties <- entityProperties -< l
+  offsetx    <- arr (fromMaybe (0 :: Int) . listToMaybe)
+                . listA (getAttrR "offsetx") -< l
+  offsety    <- arr (fromMaybe (0 :: Int) . listToMaybe)
+                . listA (getAttrR "offsety") -< l
+  let
+    layerOffset = (offsetx,offsety)
   returnA -< Layer{..}
+  where
+    convertVisibility :: Maybe Int -> Bool
+    convertVisibility Nothing = True
+    convertVisibility (Just 1) = True
+    convertVisibility (Just 0) = False
+    convertVisibility _ = error "visibility other than 1 and 0 is not supported"
 
 layers :: IOSArrow (XmlTree, (Int, Int)) [Layer]
-layers = listA (first (getChildren >>> isElem) >>> doObjectLayer
-                                               <+> doLayer
-                                               <+> doImageLayer)
-  where doObjectLayer =
-          arr fst >>> (id &&& (doObjectGroup >>> arr Right)) >>> common
---------------------------------------------------------------------------------
--- TileSet
---------------------------------------------------------------------------------
+layers = listA (first getChildren >>> doLayer)
+
+doLayer :: IOSArrow (XmlTree, (Int,Int)) Layer
+doLayer = proc (xml,(w,_)) -> do
+  layerData <- doLayerData -< (xml,w)
+  l <- common -< (xml,layerData)
+  returnA -< l
+
 tilesets :: FilePath -> IOSArrow XmlTree [Tileset]
 tilesets fp = proc xml -> do
   internalTs <- listA (tileset <<< getChildren) -< xml

@@ -19,6 +19,23 @@ show = fromString . Prelude.show
 parseXml action xmlElems = Prelude.head <$>
   loadApply (readString [] (BS.unpack $ xrender xmlElems)) action
 
+layerToXml l@(Layer {layerContents = LayerContentsImage i}) =
+  xelem "imagelayer" (layerAttrs,layerChildren)
+  where
+    layerAttrs = xattrs
+      [ xattr "name" (fromString . layerName $ l)
+      , xattr "offsetx" (show . fst . layerOffset $ l)
+      , xattr "offsety" (show . snd . layerOffset $ l)
+      , xattr "opacity" (show . layerOpacity $ l)
+      , xattr "visible" (show . convertVisible . layerIsVisible $ l)
+      ]
+    layerChildren = xelems
+      [ imageToXml i
+      , propertiesToXml (layerProperties l)
+      ]
+    convertVisible True = 1
+    convertVisible False = 0
+
 tilesetToXml tileset =
   xelem "tileset" (tilesetAttrs,tilesetChildren)
   where
@@ -34,15 +51,16 @@ tilesetToXml tileset =
       [ tileToXml tile | tile <- tsTiles tileset ] ++
       images ++
       props
-    images = imageElem <$> tsImages tileset
-    imageElem img = xelem "image" $ xattrs
-      [ xattr "source" (fromString . iSource $ img)
-      , xattr "width" (show . iWidth $ img)
-      , xattr "height" (show . iHeight $ img)
-      ]
+    images = imageToXml <$> tsImages tileset
     props = if Prelude.null (tsProperties tileset)
             then []
             else [propertiesToXml $ tsProperties tileset]
+
+imageToXml img =  xelem "image" $ xattrs
+  [ xattr "source" (fromString . iSource $ img)
+  , xattr "width" (show . iWidth $ img)
+  , xattr "height" (show . iHeight $ img)
+  ]
 
 xrenderString :: (Renderable r) => Xml r -> String
 xrenderString = BS.unpack . xrender

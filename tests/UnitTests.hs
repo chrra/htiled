@@ -84,8 +84,17 @@ tests = do
       mapFile <- loadTestMapFile "empty.tmx"
       (mapWidth mapFile, mapHeight mapFile) `shouldBe`
         (5,5)
-  describe "Data.Tiled.Load.doMap" $ do
     it "parses a map with one embedded tileset" $ do
       mapFile <- loadTestMapFile "with-tileset.tmx"
       (Prelude.length . mapTilesets $ mapFile) `shouldBe`
         1
+    it "parses a map with one tile layer" $ do
+      mapFile <- loadTestMapFile "with-tileset.tmx"
+      (Prelude.length . mapLayers $ mapFile) `shouldBe`
+        1
+  describe "Data.Tiled.Load.doLayer" $ do
+    it "parses imagelayers" $ do
+      property $ \ (ArbImageLayer l) -> monadicIO $
+        run (parseXml (arr (\ xml -> (xml,(1,1))) >>>
+                       doLayer) (layerToXml l)) >>=
+        assert . (traceMap id l ==) . traceMap id
