@@ -44,6 +44,8 @@ tileWithProperties = Tile { tileId = 0
                           , tileAnimation = Nothing
                           }
 
+loadTestMapFile path = loadMapFile ("tests/mapfiles/"++path)
+
 tests = do
   describe "UnitTests.ArbName.arbitrary" $ do
     it "generates names" $ do
@@ -58,7 +60,7 @@ tests = do
     it "parses any tiled" $ do
       property $ \ (ArbTile t) -> monadicIO $
         run (parseXml tile (tileToXml t)) >>=
-        assert . (== t) . traceMap id
+        assert . (== t)
   describe "Data.Tiled.Load.properties" $ do
     it "parses empty Property lists" $ do
       parseXml properties (xelem "properties" ()) `shouldReturn`
@@ -77,3 +79,8 @@ tests = do
       property $ \ (ArbTileset ts) -> monadicIO $
         run (parseXml tileset (tilesetToXml ts)) >>=
         assert . (== ts)
+  describe "Data.Tiled.Load.doMap" $ do
+    it "parses a minimal empty tiled map" $ do
+      mapFile <- loadTestMapFile "empty.tmx"
+      (mapWidth mapFile, mapHeight mapFile) `shouldBe`
+        (5,5)

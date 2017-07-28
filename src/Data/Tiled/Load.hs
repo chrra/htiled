@@ -7,6 +7,7 @@ module Data.Tiled.Load
   , properties
   , tile
   , tileset
+  , doMap
   , load
   , loadApply
   ) where
@@ -263,6 +264,7 @@ tilesets fp = proc xml -> do
 
 externalTileset :: FilePath -> IOSArrow XmlTree Tileset
 externalTileset mapPath =
+  hasName "tileset" >>>
   arr (const (dropFileName mapPath)) &&& getAttrValue "source"
   >>> arr (uncurry (</>))
   >>> readFromDocument [ withValidate no, withWarnings yes ]
