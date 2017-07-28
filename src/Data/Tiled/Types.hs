@@ -31,7 +31,7 @@ data Tileset = Tileset
              , tsSpacing, tsMargin       :: Int
              , tsImages                  :: [Image] -- ^ Multiple images not
                                                     -- yet supported in tiled.
-             , tsProperties              :: [Properties]
+             , tsProperties              :: Properties
              , tsTiles                   :: [Tile]
              , tsColumns                 :: Int
              } deriving (Show, Eq)

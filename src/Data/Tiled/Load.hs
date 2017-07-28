@@ -75,8 +75,9 @@ properties =
           propValue <- getAttrValue "value" -< xml
           returnA -< (propName,propValue)
 
+entityProperties :: IOSArrow XmlTree Properties
 entityProperties =
-  arr (fromMaybe [] . listToMaybe) <<< listA properties <<< getChildren
+  arr (fromMaybe [] . listToMaybe) <<< listA (properties <<< getChildren)
 
 frame :: IOSArrow XmlTree Frame
 frame = getChildren >>> isElem >>> hasName "frame" >>> proc xml -> do
@@ -274,12 +275,13 @@ tileset = isElem >>> hasName "tileset" >>>
     tsInitialGid <- getAttrR "firstgid" -< ts
     tsTileWidth <- getAttrR "tilewidth" -< ts
     tsTileHeight <- getAttrR "tileheight" -< ts
-    tsTileCount <- arr (fromMaybe 0) . getAttrMaybeR "tilecount" -< ts
+    tsTileCount <- arr (fromMaybe 0) .
+                   getAttrMaybeR "tilecount" -< ts
     tsMargin <- arr (fromMaybe 0) . getAttrMaybeR "margin" -< ts
     tsSpacing <- arr (fromMaybe 0) . getAttrMaybeR "spacing" -< ts
     tsImages <- images -< ts
     tsColumns <- getAttrR "columns" -< ts
-    tsProperties <- listA properties -< ts
+    tsProperties <- entityProperties -< ts
     tsTiles <- listA (tile <<< getChildren) -< ts
     returnA -< Tileset {..}
   where images = listA (getChildren >>> image)
