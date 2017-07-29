@@ -5,7 +5,7 @@ let
   inherit (nixpkgs) pkgs;
 
   f = { mkDerivation, base, base64-bytestring, bytestring, filepath
-      , hspec, hxt, QuickCheck, split, stdenv, vector, xmlgen, zlib
+      , hspec, hxt, QuickCheck, split, stdenv, text, vector, xmlgen, zlib
       }:
       mkDerivation {
         pname = "htiled";
@@ -14,7 +14,9 @@ let
         libraryHaskellDepends = [
           base base64-bytestring bytestring filepath hxt split vector zlib
         ];
-        testHaskellDepends = [ base hspec hxt QuickCheck xmlgen ];
+        testHaskellDepends = [
+          base bytestring hspec hxt QuickCheck text xmlgen
+        ];
         description = "Import from the Tiled map editor";
         license = stdenv.lib.licenses.bsd3;
       };
