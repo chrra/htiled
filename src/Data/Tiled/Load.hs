@@ -175,29 +175,6 @@ object = getChildren >>> isElem >>> hasName "object" >>> proc obj -> do
 
 doObjectGroup :: IOSLA (XIOState ()) XmlTree [Object]
 doObjectGroup = hasName "objectgroup" >>> listA object
-                  -- >>> common
-
-doLayerData :: IOSArrow (XmlTree, Int) LayerContents
-doLayerData =
-  (doData >>> arr LayerContentsTiles) <+>
-  ( arr fst >>>
-    hasName "imagelayer" >>>
-    getChildren >>>
-    image >>>
-    arr LayerContentsImage) <+>
-  (arr fst >>> doObjectGroup >>> arr LayerContentsObjects)
-
-doData :: IOSArrow (XmlTree, Int) TileData
-doData =
-  first (hasName "layer" >>>
-         getChildren >>>
-         isElem >>>
-         hasName "data") >>>
-  proc (dat, w) -> do
-    encoding    <- getAttrValue "encoding"        -< dat
-    compression <- getAttrValue "compression"     -< dat
-    text        <- getText . isText . getChildren -< dat
-    returnA -< dataToIndices w encoding compression text
 
 dataToIndices :: Int -> String -> String -> String -> TileData
 dataToIndices w "base64" "gzip" = toVector w . base64 GZip.decompress
@@ -229,8 +206,39 @@ bytesToWords (a:b:c:d:xs) = n : bytesToWords xs
         f = fromIntegral . fromEnum :: Char -> Word32
 bytesToWords _            = error "number of bytes not a multiple of 4."
 
-common :: IOSArrow (XmlTree, LayerContents) Layer
-common = proc (l, layerContents) -> do
+layers :: IOSArrow (XmlTree, (Int, Int)) [Layer]
+layers = listA (first getChildren >>> doLayer)
+
+doLayer :: IOSArrow (XmlTree, (Int,Int)) Layer
+doLayer = proc (xml,(w,_)) -> do
+  layerData <- doLayerData -< (xml,w)
+  l <- doLayerCommon -< (xml,layerData)
+  returnA -< l
+
+doLayerData :: IOSArrow (XmlTree, Int) LayerContents
+doLayerData =
+  (doData >>> arr LayerContentsTiles) <+>
+  ( arr fst >>>
+    hasName "imagelayer" >>>
+    getChildren >>>
+    image >>>
+    arr LayerContentsImage) <+>
+  (arr fst >>> doObjectGroup >>> arr LayerContentsObjects)
+
+doData :: IOSArrow (XmlTree, Int) TileData
+doData =
+  first (hasName "layer" >>>
+         getChildren >>>
+         isElem >>>
+         hasName "data") >>>
+  proc (dat, w) -> do
+    encoding    <- getAttrValue "encoding"        -< dat
+    compression <- getAttrValue "compression"     -< dat
+    text        <- getText . isText . getChildren -< dat
+    returnA -< dataToIndices w encoding compression text
+
+doLayerCommon :: IOSArrow (XmlTree, LayerContents) Layer
+doLayerCommon = proc (l, layerContents) -> do
   layerName       <- getAttrValue "name" -< l
   layerOpacity    <- arr (fromMaybe (1 :: Float) . listToMaybe)
                 . listA (getAttrR "opacity") -< l
@@ -250,15 +258,6 @@ common = proc (l, layerContents) -> do
     convertVisibility (Just 1) = True
     convertVisibility (Just 0) = False
     convertVisibility _ = error "visibility other than 1 and 0 is not supported"
-
-layers :: IOSArrow (XmlTree, (Int, Int)) [Layer]
-layers = listA (first getChildren >>> doLayer)
-
-doLayer :: IOSArrow (XmlTree, (Int,Int)) Layer
-doLayer = proc (xml,(w,_)) -> do
-  layerData <- doLayerData -< (xml,w)
-  l <- common -< (xml,layerData)
-  returnA -< l
 
 tilesets :: FilePath -> IOSArrow XmlTree [Tileset]
 tilesets fp = listA (getChildren >>> tileset fp)
