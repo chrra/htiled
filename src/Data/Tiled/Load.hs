@@ -1,25 +1,34 @@
 {-# LANGUAGE Arrows          #-}
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
-module Data.Tiled.Load (loadMapFile, loadMap) where
+{-# LANGUAGE TupleSections #-}
+module Data.Tiled.Load
+  (loadMapFile
+  , loadMap
+  , properties
+  , tile
+  , tileset
+  , doLayer
+  , doMap
+  , load
+  , loadApply
+  ) where
 
-import           Control.Category           (id, (.))
-import           Data.Bits                  (clearBit, testBit)
-import qualified Data.ByteString.Base64     as B64
-import qualified Data.ByteString.Char8      as BS
+import qualified Codec.Compression.GZip as GZip
+import qualified Codec.Compression.Zlib as Zlib
+import           Control.Category ((.))
+import           Data.Bits (clearBit, testBit)
+import qualified Data.ByteString.Base64 as B64
+import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as LBS
-import           Data.Char                  (digitToInt)
---import           Data.List                  (unfoldr)
-import           Data.List.Split            (splitOn)
-import           Data.Maybe                 (fromMaybe, isNothing, listToMaybe)
-import           Data.Tree.NTree.TypeDefs   (NTree)
-import           Data.Vector                (fromList, unfoldr)
-import           Data.Word                  (Word32)
-import           Prelude                    hiding (id, (.))
-
-import qualified Codec.Compression.GZip     as GZip
-import qualified Codec.Compression.Zlib     as Zlib
-import           System.FilePath            (dropFileName, (</>))
+import           Data.Char (digitToInt)
+import           Data.List.Split (splitOn)
+import           Data.Maybe (fromMaybe, listToMaybe)
+import           Data.Tree.NTree.TypeDefs (NTree)
+import           Data.Vector (fromList, unfoldr)
+import           Data.Word (Word32)
+import           Prelude hiding (id, (.))
+import           System.FilePath (dropFileName, (</>))
 import           Text.XML.HXT.Core
 
 import           Data.Tiled.Types
@@ -32,12 +41,18 @@ loadMap str = load (readString [] str) "binary"
 loadMapFile :: FilePath -> IO TiledMap
 loadMapFile fp = load (readDocument [] fp) fp
 
-load :: IOStateArrow () XmlTree XmlTree -> FilePath -> IO TiledMap
-load a fp = head `fmap` runX (
+loadApply :: IOStateArrow () XmlTree XmlTree
+          -> IOStateArrow () XmlTree a
+          -> IO [a]
+loadApply generateXmlA readDataA =
+  runX (
         configSysVars [withValidate no, withWarnings yes]
-    >>> a
+    >>> generateXmlA
     >>> getChildren >>> isElem
-    >>> doMap fp)
+    >>> readDataA)
+
+load :: IOSArrow XmlTree XmlTree -> FilePath -> IO TiledMap
+load a fp = head <$> loadApply a (doMap fp)
 
 getAttrR :: (Read a, Num a) => String -> IOSArrow XmlTree a
 getAttrR a = arr read . getAttrValue0 a
@@ -52,9 +67,20 @@ getAttrMaybe a = arr tm . getAttrValue a
         tm s  = Just s
 
 properties :: IOSArrow XmlTree Properties
-properties = listA $ getChildren >>> isElem >>> hasName "properties"
-            >>> getChildren >>> isElem >>> hasName "property"
-            >>> getAttrValue "name" &&& getAttrValue "value"
+properties =
+  hasName "properties" >>> listA
+  (getChildren >>> property)
+  where
+    property =
+      hasName "property" >>>
+      proc xml -> do
+          propName <- getAttrValue "name" -< xml
+          propValue <- getAttrValue "value" -< xml
+          returnA -< (propName,propValue)
+
+entityProperties :: IOSArrow XmlTree Properties
+entityProperties =
+  arr (fromMaybe [] . listToMaybe) <<< listA (properties <<< getChildren)
 
 frame :: IOSArrow XmlTree Frame
 frame = getChildren >>> isElem >>> hasName "frame" >>> proc xml -> do
@@ -68,30 +94,35 @@ animation = getChildren >>> isElem >>> hasName "animation"
                         >>> arr Animation
 
 tile :: IOSArrow XmlTree Tile
-tile = getChildren >>> isElem >>> hasName "tile" >>> getTile
- where getTile :: IOSArrow XmlTree Tile
-       getTile = proc xml -> do
-         tileId          <- getAttrR "id"                 -< xml
-         tileProperties  <- properties                    -< xml
-         tileImage       <- arr listToMaybe . listA image -< xml
-         tileObjectGroup <- doObjectGroup -< xml
-         tileAnimation   <- arr listToMaybe . listA animation -< xml
-         returnA -< Tile{..}
+tile = isElem >>> hasName "tile" >>> getTile
+ where
+   getTile :: IOSArrow XmlTree Tile
+   getTile = proc xml -> do
+     tileId          <- getAttrR "id" -< xml
+     tileProperties <- entityProperties -< xml
+     tileImage       <- arr listToMaybe .
+                        listA (image <<< getChildren) -< xml
+     tileObjectGroup <- flip withDefault [] doObjectGroup -< xml
+     tileAnimation   <- arr listToMaybe . listA animation -< xml
+     returnA -< Tile{..}
 
 doMap :: FilePath -> IOSArrow XmlTree TiledMap
 doMap mapPath = proc m -> do
-    mapOrientation <- arr (\case "orthogonal" -> Orthogonal
-                                 "isometric"  -> Isometric
-                                 _            -> error "unsupported orientation")
+    mapOrientation <- arr parseOrientation
                      . getAttrValue "orientation" -< m
     mapWidth       <- getAttrR "width"      -< m
     mapHeight      <- getAttrR "height"     -< m
     mapTileWidth   <- getAttrR "tilewidth"  -< m
     mapTileHeight  <- getAttrR "tileheight" -< m
-    mapProperties  <- properties            -< m
+    mapProperties  <- entityProperties -< m
     mapTilesets    <- tilesets mapPath      -< m
-    mapLayers      <- layers                -< (m, (mapWidth, mapHeight))
+    mapLayers      <- layers -< (m, (mapWidth, mapHeight))
     returnA        -< TiledMap {..}
+  where
+    parseOrientation = \case
+      "orthogonal" -> Orthogonal
+      "isometric"  -> Isometric
+      _            -> error "unsupported orientation"
 
 -- | When you use the tile flipping feature added in Tiled Qt 0.7, the highest
 -- two bits of the gid store the flipped state. Bit 32 is used for storing
@@ -144,43 +175,6 @@ object = getChildren >>> isElem >>> hasName "object" >>> proc obj -> do
 
 doObjectGroup :: IOSLA (XIOState ()) XmlTree [Object]
 doObjectGroup = hasName "objectgroup" >>> listA object
-                  -- >>> common
-
-type LayerFields = (String, Float, Bool, Properties, (Int, Int))
-
-doLayerFields :: IOSLA (XIOState ()) XmlTree LayerFields
-doLayerFields = proc l -> do
-    name       <- getAttrValue "name" -< l
-    opacity    <- arr (fromMaybe (1 :: Float) . listToMaybe)
-                    . listA (getAttrR "opacity") -< l
-    visibility <- arr (isNothing . listToMaybe)
-                    . listA (getAttrValue "visible") -< l
-    props      <- properties -< l
-    offsetx    <- arr (fromMaybe (0 :: Int) . listToMaybe)
-                    . listA (getAttrR "offsetx") -< l
-    offsety    <- arr (fromMaybe (0 :: Int) . listToMaybe)
-                    . listA (getAttrR "offsety") -< l
-    returnA -< (name, opacity, visibility, props, (offsetx, offsety))
-
-doImageLayer :: IOSLA (XIOState ()) (XmlTree, b) Layer
-doImageLayer = arr fst >>> hasName "imagelayer"
-                       >>> id &&& image
-                       >>> proc (l, img) -> do
-  let layerContents = LayerContentsImage img
-  (layerName,layerOpacity,layerIsVisible,layerProperties,layerOffset)
-    <- doLayerFields -< l
-  returnA -< Layer{..}
-
-doLayer :: IOSLA (XIOState ()) (XmlTree, (Int, Int)) Layer
-doLayer = first (hasName "layer") >>> arr fst &&& (doData >>> arr Left) >>> common
-
-doData :: IOSLA (XIOState ()) (NTree XNode, (Int, Int)) TileData
-doData = first (getChildren >>> isElem >>> hasName "data")
-      >>> proc (dat, (w, _)) -> do
-            encoding    <- getAttrValue "encoding"        -< dat
-            compression <- getAttrValue "compression"     -< dat
-            text        <- getText . isText . getChildren -< dat
-            returnA -< dataToIndices w encoding compression text
 
 dataToIndices :: Int -> String -> String -> String -> TileData
 dataToIndices w "base64" "gzip" = toVector w . base64 GZip.decompress
@@ -212,49 +206,102 @@ bytesToWords (a:b:c:d:xs) = n : bytesToWords xs
         f = fromIntegral . fromEnum :: Char -> Word32
 bytesToWords _            = error "number of bytes not a multiple of 4."
 
-common :: IOSLA (XIOState ()) (XmlTree, Either TileData [Object]) Layer
-common = proc (l, px) -> do
-  let layerContents = either LayerContentsTiles LayerContentsObjects px
-  (layerName, layerOpacity, layerIsVisible, layerProperties, layerOffset) <-
-    doLayerFields -< l
-  returnA -< Layer{..}
-
 layers :: IOSArrow (XmlTree, (Int, Int)) [Layer]
-layers = listA (first (getChildren >>> isElem) >>> doObjectLayer
-                                               <+> doLayer
-                                               <+> doImageLayer)
-  where doObjectLayer =
-          arr fst >>> (id &&& (doObjectGroup >>> arr Right)) >>> common
---------------------------------------------------------------------------------
--- TileSet
---------------------------------------------------------------------------------
+layers = listA (first getChildren >>> doLayer)
+
+doLayer :: IOSArrow (XmlTree, (Int,Int)) Layer
+doLayer = proc (xml,(w,_)) -> do
+  layerData <- doLayerData -< (xml,w)
+  l <- doLayerCommon -< (xml,layerData)
+  returnA -< l
+
+doLayerData :: IOSArrow (XmlTree, Int) LayerContents
+doLayerData =
+  (doData >>> arr LayerContentsTiles) <+>
+  ( arr fst >>>
+    hasName "imagelayer" >>>
+    getChildren >>>
+    image >>>
+    arr LayerContentsImage) <+>
+  (arr fst >>> doObjectGroup >>> arr LayerContentsObjects)
+
+doData :: IOSArrow (XmlTree, Int) TileData
+doData =
+  first (hasName "layer" >>>
+         getChildren >>>
+         isElem >>>
+         hasName "data") >>>
+  proc (dat, w) -> do
+    encoding    <- getAttrValue "encoding"        -< dat
+    compression <- getAttrValue "compression"     -< dat
+    text        <- getText . isText . getChildren -< dat
+    returnA -< dataToIndices w encoding compression text
+
+doLayerCommon :: IOSArrow (XmlTree, LayerContents) Layer
+doLayerCommon = proc (l, layerContents) -> do
+  layerName       <- getAttrValue "name" -< l
+  layerOpacity    <- arr (fromMaybe (1 :: Float) . listToMaybe)
+                . listA (getAttrR "opacity") -< l
+  layerIsVisible <- arr (convertVisibility)
+                    . getAttrMaybeR "visible" -< l
+  layerProperties <- entityProperties -< l
+  offsetx    <- arr (fromMaybe (0 :: Int) . listToMaybe)
+                . listA (getAttrR "offsetx") -< l
+  offsety    <- arr (fromMaybe (0 :: Int) . listToMaybe)
+                . listA (getAttrR "offsety") -< l
+  let
+    layerOffset = (offsetx,offsety)
+  returnA -< Layer{..}
+  where
+    convertVisibility :: Maybe Int -> Bool
+    convertVisibility Nothing = True
+    convertVisibility (Just 1) = True
+    convertVisibility (Just 0) = False
+    convertVisibility _ = error "visibility other than 1 and 0 is not supported"
+
 tilesets :: FilePath -> IOSArrow XmlTree [Tileset]
-tilesets fp =
-  listA $ getChildren >>> isElem >>> hasName "tileset"
-  >>> getAttrR "firstgid" &&& ifA (hasAttr "source") (externalTileset fp) id
-  >>> tileset
+tilesets fp = listA (getChildren >>> tileset fp)
 
-externalTileset :: FilePath -> IOSArrow XmlTree XmlTree
-externalTileset mapPath =
-  arr (const (dropFileName mapPath)) &&& getAttrValue "source"
-  >>> arr (uncurry (</>))
-  >>> readFromDocument [ withValidate no, withWarnings yes ]
-  >>> getChildren >>> isElem >>> hasName "tileset"
+tileset :: FilePath -> IOSArrow XmlTree Tileset
+tileset fp =
+  (arr (Nothing,) >>> internalTileset) <+>
+  externalTileset fp
 
-tileset :: IOSArrow (Word32, XmlTree) Tileset
-tileset = proc (tsInitialGid, ts) -> do
-  tsName           <- getAttrValue "name"                           -< ts
-  tsTileWidth      <- getAttrR "tilewidth"                          -< ts
-  tsTileHeight     <- getAttrR "tileheight"                         -< ts
-  tsTileCount      <- arr (fromMaybe 0) . getAttrMaybeR "tilecount" -< ts
-  tsMargin         <- arr (fromMaybe 0) . getAttrMaybeR "margin"    -< ts
-  tsSpacing        <- arr (fromMaybe 0) . getAttrMaybeR "spacing"   -< ts
-  tsImages         <- images                                     -< ts
-  --tsTileProperties <- listA tileProperties                          -< ts
-  tsProperties <- listA properties -< ts
-  tsTiles      <- listA tile       -< ts
-  returnA -< Tileset {..}
-    where images = listA (getChildren >>> image)
+externalTileset :: FilePath -> IOSArrow XmlTree Tileset
+externalTileset mapPath = hasName "tileset" >>>
+  hasAttr "source" >>> proc xml -> do
+    source <- arr ((dropFileName mapPath) </>) <<<
+              getAttrValue "source" -< xml
+    gid <- getAttrR "firstgid" -< xml
+    externalDocument <-
+      readFromDocument [ withValidate no, withWarnings yes] -< source
+    ts <- internalTileset  <<<
+          second getChildren <<<
+          first (arr Just) -< (gid,externalDocument)
+    returnA -< ts
+
+internalTileset :: IOSArrow (Maybe Word32, XmlTree) Tileset
+internalTileset = second (isElem >>> hasName "tileset") >>>
+  proc (maybeGid,ts) -> do
+    tsName <- getAttrValue "name" -< ts
+    maybeGidHere <- getAttrMaybeR "firstgid" -< ts
+    tsTileWidth <- getAttrR "tilewidth" -< ts
+    tsTileHeight <- getAttrR "tileheight" -< ts
+    tsTileCount <- arr (fromMaybe 0) .
+                   getAttrMaybeR "tilecount" -< ts
+    tsMargin <- arr (fromMaybe 0) . getAttrMaybeR "margin" -< ts
+    tsSpacing <- arr (fromMaybe 0) . getAttrMaybeR "spacing" -< ts
+    tsImages <- images -< ts
+    tsColumns <- getAttrR "columns" -< ts
+    tsProperties <- entityProperties -< ts
+    tsTiles <- listA (tile <<< getChildren) -< ts
+    let
+      tsInitialGid =
+        fromMaybe (error "Cannot load gid from tileset") $
+        maybe maybeGidHere Just $
+        maybeGid
+    returnA -< Tileset {..}
+  where images = listA (getChildren >>> image)
 
 data ImageType = TileImage | NormalImage deriving (Read)
 
