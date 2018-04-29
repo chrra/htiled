@@ -40,4 +40,6 @@ test-suite unittests
                , bytestring
                , text
   hs-source-dirs: tests
+  other-modules: Data.Tiled.Test.Arbitrary
+               , Data.Tiled.Test.Xml
   main-is: UnitTests.hs
