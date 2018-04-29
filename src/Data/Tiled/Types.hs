@@ -67,15 +67,60 @@ data Image = Image
 
 -- | An object, usable for stuff not repetitively aligned on a grid.
 data Object = Object
-            { objectName                :: Maybe String
-            , objectType                :: Maybe String
-            , objectProperties          :: Properties
-            , objectX, objectY          :: Double
-            , objectWidth, objectHeight :: Maybe Double
-            , objectGid                 :: Maybe Word32
-            , objectPolygon             :: Maybe Polygon
-            , objectPolyline            :: Maybe Polyline
+            { objectName       :: Maybe String
+            , objectType       :: Maybe String
+            , objectIsVisible  :: Bool
+            , objectProperties :: Properties
+            , objectX, objectY :: Double
+            , objectKind       :: ObjectKind
             } deriving (Show, Eq)
+
+-- | Object rotation.
+type Rotation = Double
+
+-- | Object width.
+type Width = Double
+
+-- | Object height.
+type Height = Double
+
+-- | The different types of objects that can be placed.
+data ObjectKind = ObjectKindPoint
+                | ObjectKindRectangle Width Height Rotation
+                | ObjectKindEllipse Width Height Rotation
+                | ObjectKindPolygon Polygon Rotation
+                | ObjectKindPolyline Polyline Rotation
+                | ObjectKindTile Width Height Rotation TileIndex
+                | ObjectKindText Width Height Rotation TextData
+                deriving (Show, Eq)
+
+-- | Horizontal alignment within a text object.
+data TextHorizontalAlignment = TextHAlignmentLeft
+                             | TextHAlignmentCenter
+                             | TextHAlignmentRight
+                             deriving (Show, Eq)
+
+-- | Vertical alignment within a text object.
+data TextVerticalAlignment = TextVAlignmentTop
+                           | TextVAlignmentCenter
+                           | TextVAlignmentBottom
+                           deriving (Show, Eq)
+
+-- | Text object specific data.
+data TextData = TextData 
+              { textContents            :: String
+              , textFontFamily          :: String
+              , textPixelSize           :: Int
+              , textWordWrap            :: Bool
+              , textColor               :: (Word8, Word8, Word8, Word8)
+              -- ^ Text color in ARGB.
+              , textHorizontalAlignment :: TextHorizontalAlignment
+              , textVerticalAlignment   :: TextVerticalAlignment
+              , textBold                :: Bool
+              , textItalic              :: Bool
+              , textUnderline           :: Bool
+              , textStrikeout           :: Bool
+              } deriving (Show, Eq)
 
 -- | A polygon.
 newtype Polygon = Polygon [(Int, Int)] deriving (Show, Eq)

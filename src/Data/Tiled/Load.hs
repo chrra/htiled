@@ -26,7 +26,7 @@ import           Data.List.Split (splitOn)
 import           Data.Maybe (fromMaybe, listToMaybe)
 import           Data.Tree.NTree.TypeDefs (NTree)
 import           Data.Vector (fromList, unfoldr)
-import           Data.Word (Word32)
+import           Data.Word (Word32, Word8)
 import           Prelude hiding (id, (.))
 import           System.FilePath (dropFileName, (</>))
 import           Text.XML.HXT.Core
@@ -131,13 +131,15 @@ doMap mapPath = proc m -> do
 -- tile is flipped (anti) diagonally, enabling tile rotation. These bits have to be read and cleared before you can find out which tileset a tile belongs to.
 -- When rendering a tile, the order of operation matters. The diagonal flip
 -- (x/y axis swap) is done first, followed by the horizontal and vertical flips.
-wordsToIndices :: [Word32] -> [TileIndex]
-wordsToIndices []           = []
-wordsToIndices (w:ws)       = TileIndex { .. } : wordsToIndices ws
+makeTileIndex :: Word32 -> TileIndex
+makeTileIndex w = TileIndex {..}
   where tileIndexGid           = w `clearBit` 30 `clearBit` 31 `clearBit` 29
         tileIndexIsVFlipped    = w `testBit` 30
         tileIndexIsHFlipped    = w `testBit` 31
         tileIndexIsDiagFlipped = w `testBit` 29
+
+wordsToIndices :: [Word32] -> [TileIndex]
+wordsToIndices = map makeTileIndex
 
 points :: String -> [(Int, Int)]
 points [] = []
@@ -147,31 +149,98 @@ points s  = (px, py):points rest
           px = read x'
           py = read y'
 
-polygon :: IOSArrow XmlTree [Polygon]
-polygon = listA $ getChildren >>> isElem
-                              >>> hasName "polygon"
-                              >>> getAttrValue "points"
-                              >>> arr (Polygon . points)
+convertBool :: Bool -> Maybe Int -> Bool
+convertBool def = maybe def (/= 0)
 
-polyline :: IOSArrow XmlTree [Polyline]
-polyline = listA $ getChildren >>> isElem
-                               >>> hasName "polyline"
-                               >>> getAttrValue "points"
-                               >>> arr (Polyline . points)
+polygon :: IOSArrow XmlTree Polygon
+polygon = getChildren >>> isElem
+                      >>> hasName "polygon"
+                      >>> getAttrValue "points"
+                      >>> arr (Polygon . points)
+
+polyline :: IOSArrow XmlTree Polyline
+polyline = getChildren >>> isElem
+                       >>> hasName "polyline"
+                       >>> getAttrValue "points"
+                       >>> arr (Polyline . points)
+
+textData :: IOSArrow XmlTree TextData
+textData =
+  getChildren >>> isElem >>> hasName "text" >>> proc xml -> do
+    textFontFamily          <- arr (fromMaybe "sans-serif") . getAttrMaybe "fontfamily"           -< xml
+    textContents            <- getText                                                            -< xml
+    textColor               <- arr (maybe (0, 0, 0, 0) parseColor) . getAttrMaybe "color"         -< xml
+    textPixelSize           <- arr (fromMaybe 16) . getAttrMaybeR "pixelsize"                     -< xml
+    textWordWrap            <- arr (convertBool True) . getAttrMaybeR "wrap"                      -< xml
+    textHorizontalAlignment <- arr (maybe TextHAlignmentLeft parseHAlign) . getAttrMaybe "halign" -< xml
+    textVerticalAlignment   <- arr (maybe TextVAlignmentTop parseVAlign) . getAttrMaybe "valign"  -< xml
+    textBold                <- arr (convertBool False) . getAttrMaybeR "bold"                     -< xml
+    textItalic              <- arr (convertBool False) . getAttrMaybeR "italic"                   -< xml
+    textUnderline           <- arr (convertBool False) . getAttrMaybeR "underline"                -< xml
+    textStrikeout           <- arr (convertBool False) . getAttrMaybeR "strikeout"                -< xml
+    returnA -< TextData{..}
+  where
+    parseColor :: String -> (Word8, Word8, Word8, Word8)
+    parseColor ('#':a1:a0:r1:r0:g1:g0:b1:b0:_) = (read [a1, a0], read [r1, r0], read [g1, g0], read [b1, b0])
+    parseColor s = error $ "Unrecognized color format: " ++ s
+
+    parseHAlign :: String -> TextHorizontalAlignment
+    parseHAlign "left"   = TextHAlignmentLeft
+    parseHAlign "center" = TextHAlignmentCenter
+    parseHAlign "right"  = TextHAlignmentRight
+    parseHAlign s = error $ "Unsupported text horizontal alignment: " ++ s
+
+    parseVAlign :: String -> TextVerticalAlignment
+    parseVAlign "top"    = TextVAlignmentTop
+    parseVAlign "center" = TextVAlignmentCenter
+    parseVAlign "bottom" = TextVAlignmentBottom
+    parseVAlign s = error $ "Unsupported text vertical alignment: " ++ s
 
 object :: IOSLA (XIOState ()) (NTree XNode) Object
 object = getChildren >>> isElem >>> hasName "object" >>> proc obj -> do
-  objectName       <- arr listToMaybe . listA (getAttrValue "name") -< obj
-  objectType       <- arr listToMaybe . listA (getAttrValue "type") -< obj
-  objectX          <- getAttrR "x"                                  -< obj
-  objectY          <- getAttrR "y"                                  -< obj
-  objectWidth      <- arr listToMaybe . listA (getAttrR "width")    -< obj
-  objectHeight     <- arr listToMaybe . listA (getAttrR "height")   -< obj
-  objectGid        <- arr listToMaybe . listA (getAttrR "gid")      -< obj
-  objectPolygon    <- arr listToMaybe . polygon                     -< obj
-  objectPolyline   <- arr listToMaybe . polyline                    -< obj
-  objectProperties <- properties                                  -< obj
+  objectName       <- arr listToMaybe . listA (getAttrValue "name")    -< obj
+  objectType       <- arr listToMaybe . listA (getAttrValue "type")    -< obj
+  objectX          <- getAttrR "x"                                     -< obj
+  objectY          <- getAttrR "y"                                     -< obj
+  objectProperties <- properties                                       -< obj
+  objectIsVisible  <- arr (convertBool True) . getAttrMaybeR "visible" -< obj
+  objectKind       <- objKind                                          -< obj
   returnA      -< Object {..}
+
+objKind :: IOSArrow XmlTree ObjectKind
+objKind = 
+  (getChildren >>> isElem >>> hasName "point" >>> arr (const ObjectKindPoint))
+  <+> (proc xml -> do
+    _        <- hasName "ellipse" . isElem . getChildren     -< xml
+    width    <- arr (fromMaybe 0) . getAttrMaybeR "width"    -< xml
+    height   <- arr (fromMaybe 0) . getAttrMaybeR "height"   -< xml
+    rotation <- arr (fromMaybe 0) . getAttrMaybeR "rotation" -< xml
+    returnA -< ObjectKindEllipse width height rotation)
+  <+> (proc xml -> do
+    p        <- polygon                                      -< xml
+    rotation <- arr (fromMaybe 0) . getAttrMaybeR "rotation" -< xml
+    returnA -< ObjectKindPolygon p rotation)
+  <+> (proc xml -> do
+    p        <- polyline                                     -< xml
+    rotation <- arr (fromMaybe 0) . getAttrMaybeR "rotation" -< xml
+    returnA -< ObjectKindPolyline p rotation)
+  <+> (proc xml -> do
+    tTileIndex <- arr makeTileIndex . getAttrR "gid"           -< xml
+    width      <- arr (fromMaybe 0) . getAttrMaybeR "width"    -< xml
+    height     <- arr (fromMaybe 0) . getAttrMaybeR "height"   -< xml
+    rotation   <- arr (fromMaybe 0) . getAttrMaybeR "rotation" -< xml
+    returnA -< ObjectKindTile width height rotation tTileIndex)
+  <+> (proc xml -> do
+    tdata      <- textData                                     -< xml
+    width      <- arr (fromMaybe 0) . getAttrMaybeR "width"    -< xml
+    height     <- arr (fromMaybe 0) . getAttrMaybeR "height"   -< xml
+    rotation   <- arr (fromMaybe 0) . getAttrMaybeR "rotation" -< xml
+    returnA -< ObjectKindText width height rotation tdata)
+  <+> (proc xml -> do
+    width    <- arr (fromMaybe 0) . getAttrMaybeR "width"    -< xml
+    height   <- arr (fromMaybe 0) . getAttrMaybeR "height"   -< xml
+    rotation <- arr (fromMaybe 0) . getAttrMaybeR "rotation" -< xml
+    returnA -< ObjectKindRectangle width height rotation)
 
 doObjectGroup :: IOSLA (XIOState ()) XmlTree [Object]
 doObjectGroup = hasName "objectgroup" >>> listA object
@@ -242,7 +311,7 @@ doLayerCommon = proc (l, layerContents) -> do
   layerName       <- getAttrValue "name" -< l
   layerOpacity    <- arr (fromMaybe (1 :: Float) . listToMaybe)
                 . listA (getAttrR "opacity") -< l
-  layerIsVisible <- arr (convertVisibility)
+  layerIsVisible <- arr (convertBool True)
                     . getAttrMaybeR "visible" -< l
   layerProperties <- entityProperties -< l
   offsetx    <- arr (fromMaybe (0 :: Int) . listToMaybe)
@@ -252,12 +321,6 @@ doLayerCommon = proc (l, layerContents) -> do
   let
     layerOffset = (offsetx,offsety)
   returnA -< Layer{..}
-  where
-    convertVisibility :: Maybe Int -> Bool
-    convertVisibility Nothing = True
-    convertVisibility (Just 1) = True
-    convertVisibility (Just 0) = False
-    convertVisibility _ = error "visibility other than 1 and 0 is not supported"
 
 tilesets :: FilePath -> IOSArrow XmlTree [Tileset]
 tilesets fp = listA (getChildren >>> tileset fp)
