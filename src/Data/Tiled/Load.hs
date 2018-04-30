@@ -27,6 +27,7 @@ import           Data.Maybe (fromMaybe, listToMaybe)
 import           Data.Tree.NTree.TypeDefs (NTree)
 import           Data.Vector (fromList, unfoldr)
 import           Data.Word (Word32, Word8)
+import           Numeric (readHex)
 import           Prelude hiding (id, (.))
 import           System.FilePath (dropFileName, (</>))
 import           Text.XML.HXT.Core
@@ -114,7 +115,7 @@ doMap mapPath = proc m -> do
     mapHeight      <- getAttrR "height"     -< m
     mapTileWidth   <- getAttrR "tilewidth"  -< m
     mapTileHeight  <- getAttrR "tileheight" -< m
-    mapProperties  <- entityProperties -< m
+    mapProperties  <- entityProperties      -< m
     mapTilesets    <- tilesets mapPath      -< m
     mapLayers      <- layers -< (m, (mapWidth, mapHeight))
     returnA        -< TiledMap {..}
@@ -168,7 +169,7 @@ textData :: IOSArrow XmlTree TextData
 textData =
   getChildren >>> isElem >>> hasName "text" >>> proc xml -> do
     textFontFamily          <- arr (fromMaybe "sans-serif") . getAttrMaybe "fontfamily"           -< xml
-    textContents            <- getText                                                            -< xml
+    textContents            <- getText . getChildren                                              -< xml
     textColor               <- arr (maybe (0, 0, 0, 0) parseColor) . getAttrMaybe "color"         -< xml
     textPixelSize           <- arr (fromMaybe 16) . getAttrMaybeR "pixelsize"                     -< xml
     textWordWrap            <- arr (convertBool True) . getAttrMaybeR "wrap"                      -< xml
@@ -181,7 +182,11 @@ textData =
     returnA -< TextData{..}
   where
     parseColor :: String -> (Word8, Word8, Word8, Word8)
-    parseColor ('#':a1:a0:r1:r0:g1:g0:b1:b0:_) = (read [a1, a0], read [r1, r0], read [g1, g0], read [b1, b0])
+    parseColor ('#':a1:a0:r1:r0:g1:g0:b1:b0:_) = 
+      ( fst $ readHex [a1, a0] !! 0
+      , fst $ readHex [r1, r0] !! 0
+      , fst $ readHex [g1, g0] !! 0
+      , fst $ readHex [b1, b0] !! 0)
     parseColor s = error $ "Unrecognized color format: " ++ s
 
     parseHAlign :: String -> TextHorizontalAlignment
@@ -198,8 +203,8 @@ textData =
 
 object :: IOSLA (XIOState ()) (NTree XNode) Object
 object = getChildren >>> isElem >>> hasName "object" >>> proc obj -> do
-  objectName       <- arr listToMaybe . listA (getAttrValue "name")    -< obj
-  objectType       <- arr listToMaybe . listA (getAttrValue "type")    -< obj
+  objectName       <- getAttrMaybe "name"                              -< obj
+  objectType       <- getAttrMaybe "type"                              -< obj
   objectX          <- getAttrR "x"                                     -< obj
   objectY          <- getAttrR "y"                                     -< obj
   objectProperties <- entityProperties                                 -< obj
@@ -210,33 +215,33 @@ object = getChildren >>> isElem >>> hasName "object" >>> proc obj -> do
 objKind :: IOSArrow XmlTree ObjectKind
 objKind = 
   (getChildren >>> isElem >>> hasName "point" >>> arr (const ObjectKindPoint))
-  <+> (proc xml -> do
+  `orElse` (proc xml -> do
     _        <- hasName "ellipse" . isElem . getChildren     -< xml
     width    <- arr (fromMaybe 0) . getAttrMaybeR "width"    -< xml
     height   <- arr (fromMaybe 0) . getAttrMaybeR "height"   -< xml
     rotation <- arr (fromMaybe 0) . getAttrMaybeR "rotation" -< xml
     returnA -< ObjectKindEllipse width height rotation)
-  <+> (proc xml -> do
+  `orElse` (proc xml -> do
     p        <- polygon                                      -< xml
     rotation <- arr (fromMaybe 0) . getAttrMaybeR "rotation" -< xml
     returnA -< ObjectKindPolygon p rotation)
-  <+> (proc xml -> do
+  `orElse` (proc xml -> do
     p        <- polyline                                     -< xml
     rotation <- arr (fromMaybe 0) . getAttrMaybeR "rotation" -< xml
     returnA -< ObjectKindPolyline p rotation)
-  <+> (proc xml -> do
+  `orElse` (proc xml -> do
     tTileIndex <- arr makeTileIndex . getAttrR "gid"           -< xml
     width      <- arr (fromMaybe 0) . getAttrMaybeR "width"    -< xml
     height     <- arr (fromMaybe 0) . getAttrMaybeR "height"   -< xml
     rotation   <- arr (fromMaybe 0) . getAttrMaybeR "rotation" -< xml
     returnA -< ObjectKindTile width height rotation tTileIndex)
-  <+> (proc xml -> do
+  `orElse` (proc xml -> do
     tdata      <- textData                                     -< xml
     width      <- arr (fromMaybe 0) . getAttrMaybeR "width"    -< xml
     height     <- arr (fromMaybe 0) . getAttrMaybeR "height"   -< xml
     rotation   <- arr (fromMaybe 0) . getAttrMaybeR "rotation" -< xml
     returnA -< ObjectKindText width height rotation tdata)
-  <+> (proc xml -> do
+  `orElse` (proc xml -> do
     width    <- arr (fromMaybe 0) . getAttrMaybeR "width"    -< xml
     height   <- arr (fromMaybe 0) . getAttrMaybeR "height"   -< xml
     rotation <- arr (fromMaybe 0) . getAttrMaybeR "rotation" -< xml
