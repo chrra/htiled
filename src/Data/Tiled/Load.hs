@@ -202,7 +202,7 @@ object = getChildren >>> isElem >>> hasName "object" >>> proc obj -> do
   objectType       <- arr listToMaybe . listA (getAttrValue "type")    -< obj
   objectX          <- getAttrR "x"                                     -< obj
   objectY          <- getAttrR "y"                                     -< obj
-  objectProperties <- properties                                       -< obj
+  objectProperties <- entityProperties                                 -< obj
   objectIsVisible  <- arr (convertBool True) . getAttrMaybeR "visible" -< obj
   objectKind       <- objKind                                          -< obj
   returnA      -< Object {..}
