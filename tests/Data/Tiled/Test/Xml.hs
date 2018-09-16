@@ -79,6 +79,7 @@ tileToXml tile =
   where
     tileAttrs = xattrs
       [ xattr "id" (show . tileId $ tile)
+      , xattr "type" (fromString . tileType $ tile)
       ]
     tileChildren = xelems $
       [ props

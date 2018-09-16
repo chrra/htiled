@@ -52,6 +52,7 @@ newtype Animation = Animation { animationFrames :: [Frame] }
 data Tile = Tile { tileId          :: Word32
                  -- ^ The local tile ID within its tileset.
                  -- TODO: Add terrain and probability
+                 , tileType        :: String
                  , tileProperties  :: Properties
                  , tileImage       :: Maybe Image
                  , tileObjectGroup :: [Object]
