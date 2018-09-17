@@ -100,6 +100,7 @@ tile = isElem >>> hasName "tile" >>> getTile
    getTile :: IOSArrow XmlTree Tile
    getTile = proc xml -> do
      tileId          <- getAttrR "id" -< xml
+     tileType        <- getAttrValue "type" -< xml
      tileProperties <- entityProperties -< xml
      tileImage       <- arr listToMaybe .
                         listA (image <<< getChildren) -< xml

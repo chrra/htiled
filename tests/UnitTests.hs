@@ -31,6 +31,7 @@ traceMapString f val = trace (f val) val
 main = hspec tests
 
 minimalTile = Tile { tileId = 0
+                   , tileType = ""
                    , tileProperties = []
                    , tileImage = Nothing
                    , tileObjectGroup = []
@@ -38,6 +39,7 @@ minimalTile = Tile { tileId = 0
                    }
 
 tileWithProperties = Tile { tileId = 0
+                          , tileType = ""
                           , tileProperties = [("testProperty","testValue")]
                           , tileImage = Nothing
                           , tileObjectGroup = []

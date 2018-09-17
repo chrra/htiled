@@ -14,6 +14,13 @@ instance Arbitrary ArbName where
     (listOf $ oneof (return <$> ['a'..'z'])) `suchThat`
       ( \ l -> Prelude.length l < 100 && Prelude.length l > 0)
 
+newtype ArbType = ArbType { getType :: String } deriving Show
+
+instance Arbitrary ArbType where
+  arbitrary = ArbType <$> do
+    (listOf $ oneof (return <$> ['a'..'z'])) `suchThat`
+      ( \ l -> Prelude.length l < 100 && Prelude.length l >= 0)
+
 newtype ArbProperties = ArbProperties { getProperties :: Properties }
   deriving Show
 
@@ -51,6 +58,7 @@ arbitraryTile :: Word32 -> Maybe Animation -> Gen Tile
 arbitraryTile tileId tileAnimation = do
   tileImage <- arbMaybe $ arbitraryImage 10 10
   tileProperties <- getProperties <$> arbitrary
+  tileType <- getType <$> arbitrary
   return Tile {..}
   where
     tileImage = Nothing
